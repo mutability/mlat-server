@@ -11,20 +11,22 @@ from . import latlon
 
 
 @asyncio.coroutine
-def start_client(r, w):
-    client = MlatClient(r, w)
+def start_client(r, w, **kwargs):
+    client = MlatClient(r, w, **kwargs)
     yield from client.run()
 
 
 class MlatClient:
-    def __init__(self, reader, writer):
+    def __init__(self, reader, writer, *, coordinator):
         self.r = reader
         self.w = writer
+        self.coordinator = coordinator
         self.transport = writer.transport
         self.compression_methods = (
             ('zlib', self.handle_zlib_messages),
             ('none', self.handle_line_messages),
         )
+        self.client_id = None
 
     @asyncio.coroutine
     def run(self):
@@ -42,6 +44,8 @@ class MlatClient:
             logging.exception('Exception handling client')
 
         finally:
+            if self.client_id is not None:
+                self.coordinator.client_logout(self.client_id)
             self.transport.close()
 
     def process_handshake(self, line):
@@ -83,9 +87,16 @@ class MlatClient:
                 self.ecef = latlon.llh2ecef(self.lat, self.lon, self.alt)
 
                 self.user = str(hs['user'])
-                self.use_heartbeats = bool(hs.get('heartbeat', False))
-                self.use_selective_traffic = bool(hs.get('selective_traffic', False))
+
+                if not hs.get('heartbeat', False):
+                    raise ValueError('must use heartbeats')
+
+                if not hs.get('selective_traffic', False):
+                    raise ValueError('must use selective traffic')
+
                 self.use_return_results = bool(hs.get('return_results', False))
+
+                self.client_id = self.coordinator.client_login(self, self.user)
 
             except KeyError as e:
                 deny = 'Missing field in handshake: ' + str(e)
@@ -101,8 +112,8 @@ class MlatClient:
         # todo: MOTD
         self.write(compress=self.compress,
                    reconnect_in=util.fuzzy(60),
-                   selective_traffic=self.use_selective_traffic,
-                   heartbeat=self.use_heartbeats,
+                   selective_traffic=True,
+                   heartbeat=True,
                    return_results=self.use_return_results)
 
         return True
@@ -145,7 +156,7 @@ class MlatClient:
                 linebuf += decompressed.decode('ascii')
                 lines = linebuf.split('\n')
                 for line in lines[:-1]:
-                    yield from self.process_message(line)
+                    self.process_message(line)
 
                 linebuf = lines[-1]
                 if len(linebuf) > 1024:
@@ -160,7 +171,53 @@ class MlatClient:
             if linebuf:
                 raise ValueError('Client sent a packet that was not newline terminated')
 
-    @asyncio.coroutine
     def process_message(self, line):
         msg = json.loads(line)
-        logging.debug('receive %s', msg)
+
+        if 'sync' in msg:
+            self.process_sync_message(msg['sync'])
+        elif 'mlat' in msg:
+            self.process_mlat_message(msg['mlat'])
+        elif 'seen' in msg:
+            self.process_seen_message(msg['seen'])
+        elif 'lost' in msg:
+            self.process_lost_message(msg['lost'])
+        elif 'input_connected' in msg:
+            self.process_input_connected_message(msg['input_connected'])
+        elif 'input_disconnect' in msg:
+            self.process_input_disconnect_message(msg['input_disconnect'])
+        elif 'heartbeat' in msg:
+            self.process_heartbeat_message(msg['heartbeat'])
+        else:
+            logging.info('Received an unexpected message: %s', msg)
+
+    def process_sync_message(self, sync):
+        even_time = float(sync['et'])
+        odd_time = float(sync['ot'])
+        even_message = bytes.fromhex(sync['em'])
+        odd_message = bytes.fromhex(sync['om'])
+
+        self.coordinator.client_sync(self.client_id, even_time, odd_time, even_message, odd_message)
+
+    def process_mlat_message(self, mlat):
+        t = float(mlat['t'])
+        m = bytes.fromhex(mlat['m'])
+
+        self.coordinator.client_mlat(self.client_id, t, m)
+
+    def process_seen_message(self, seen):
+        for icao in seen:
+            self.coordinator.client_tracking(self.client_id, icao)
+
+    def process_lost_message(self, lost):
+        for icao in lost:
+            self.coordinator.client_not_tracking(self.client_id, icao)
+
+    def process_input_connected_message(self, m):
+        pass
+
+    def process_input_disconnected_message(self, m):
+        self.coordinator.client_reset(self.client_id)
+
+    def process_heartbeat_message(self, m):
+        pass

@@ -2,13 +2,14 @@
 
 import asyncio
 import logging
+import functools
 
 from mlat import clientio
 
 
 def main(port):
     loop = asyncio.get_event_loop()
-    server_task = asyncio.start_server(clientio.start_client, port=port)
+    server_task = asyncio.start_server(functools.partial(clientio.start_client, coordinator=None), port=port)
     server = loop.run_until_complete(server_task)
 
     print('Serving on {}'.format(server.sockets[0].getsockname()))
