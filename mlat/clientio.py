@@ -9,16 +9,18 @@ import time
 
 from . import util
 from . import latlon
+from . import connection
+from .constants import MTOF
 
 
-def start_client(r, w, **kwargs):
+def start_json_client(r, w, **kwargs):
     host, port = w.transport.get_extra_info('peername')
     logging.info('Accepted new client connection from %s:%d', host, port)
-    client = MlatClient(r, w, **kwargs)
+    client = JsonClient(r, w, **kwargs)
     client.start()
 
 
-class MlatClient(object):
+class JsonClient(object, connection.Connection):
     write_heartbeat_interval = 30.0
     read_heartbeat_interval = 45.0
 
@@ -28,26 +30,35 @@ class MlatClient(object):
         self.coordinator = coordinator
         self.transport = writer.transport
         self.compression_methods = (
-            ('zlib', self.handle_zlib_messages),
-            ('none', self.handle_line_messages),
+            ('zlib_bi', self.handle_zlib_messages, self.write_zlib),
+            ('zlib', self.handle_zlib_messages, self.write_raw),
+            ('none', self.handle_line_messages, self.write_raw)
         )
-        self.receiver_id = None
-        self.read_task = None
-        self.last_message_time = None
+        self.receiver = None
+        self._read_task = None
+        self._last_message_time = None
+
+        self._pending_traffic_update = None
+        self._requested_traffic = set()
+        self._wanted_traffic = set()
+
+        self._compressor = None
+        self._pending_flush = None
+        self._writebuf = []
 
     def start(self):
-        self.read_task = asyncio.async(self.handle_connection())
+        self._read_task = asyncio.async(self.handle_connection())
 
     @asyncio.coroutine
     def handle_heartbeats(self):
         """A coroutine that:
 
- * Periodicallys write heartbeat messages to the client.
- * Monitors when the last message from the client was seen, and closes down the connection
-  if the read heartbeat interval is exceeded.
+        * Periodicallys write heartbeat messages to the client.
+        * Monitors when the last message from the client was seen, and closes
+        down the connection if the read heartbeat interval is exceeded.
 
-This coroutine is started as a task from handle_connection() after the initial
-handshake is complete."""
+        This coroutine is started as a task from handle_connection() after the
+        initial handshake is complete."""
 
         while True:
             # wait a while..
@@ -55,9 +66,9 @@ handshake is complete."""
 
             # if we have seen no activity recently, declare the
             # connection dead and close it down
-            if (time.monotonic() - self.last_message_time) > self.read_heartbeat_interval:
+            if (time.monotonic() - self._last_message_time) > self.read_heartbeat_interval:
                 logging.warn("Client timeout, no recent messages seen, closing connection")
-                self.read_task.cancel()  # finally block will do cleanup
+                self._read_task.cancel()  # finally block will do cleanup
 
             # write a heartbeat message
             self.write(heartbeat=round(time.time(), 3))
@@ -66,13 +77,13 @@ handshake is complete."""
     def handle_connection(self):
         """A coroutine that handle reading from the client and processing messages.
 
-This does the initial handshake, then reads and processes messages after the handshake is
-complete.
+        This does the initial handshake, then reads and processes messages
+        after the handshake iscomplete.
 
-It also does any client cleanup needed when the connection is closed.
+        It also does any client cleanup needed when the connection is closed.
 
-This coroutine's task is stashed as self.read_task; cancelling this task will cause the
-client connection to be closed and cleaned up."""
+        This coroutine's task is stashed as self.read_task; cancelling this
+        task will cause the client connection to be closed and cleaned up."""
 
         heartbeat_task = None
 
@@ -82,7 +93,7 @@ client connection to be closed and cleaned up."""
                 return
 
             # start heartbeat handling now that the handshake is done
-            self.last_message_time = time.monotonic()
+            self._last_message_time = time.monotonic()
             heartbeat_task = asyncio.async(self.handle_heartbeats())
 
             yield from self.handle_messages()
@@ -93,8 +104,8 @@ client connection to be closed and cleaned up."""
         finally:
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
-            if self.receiver_id is not None:
-                self.coordinator.receiver_disconnect(self.receiver_id)
+            if self.receiver is not None:
+                self.coordinator.receiver_disconnect(self.receiver)
             self.transport.close()
 
     def process_handshake(self, line):
@@ -111,10 +122,11 @@ client connection to be closed and cleaned up."""
 
                 peer_compression_methods = set(hs['compress'])
                 self.compress = None
-                for c, m in self.compression_methods:
+                for c, readmeth, writemeth in self.compression_methods:
                     if c in peer_compression_methods:
                         self.compress = c
-                        self.handle_messages = m
+                        self.handle_messages = readmeth
+                        self.write = writemeth
                         break
                 if self.compress is None:
                     raise ValueError('No mutually usable compression type')
@@ -135,6 +147,13 @@ client connection to be closed and cleaned up."""
 
                 self.ecef = latlon.llh2ecef(self.lat, self.lon, self.alt)
 
+                self.clock_epoch = hs.get('clock_epoch', 'freerun')
+                if self.clock_epoch not in ('freerun', 'gps_start_of_day'):
+                    raise ValueError('invalid clock_epoch, should be one of freerun or gps_start_of_day')
+                self.clock_freq = float(hs.get('clock_freq', 12e6))
+                if self.clock_freq < 2e6 or self.clock_freq > 1e9:
+                    raise ValueError('invalid clock_freq, should be 2MHz - 1000MHz')
+
                 self.user = str(hs['user'])
 
                 if not hs.get('heartbeat', False):
@@ -144,8 +163,22 @@ client connection to be closed and cleaned up."""
                     raise ValueError('must use selective traffic')
 
                 self.use_return_results = bool(hs.get('return_results', False))
+                if self.use_return_results:
+                    return_result_format = hs.get('return_result_format', 'old')
+                    if return_result_format == 'old':
+                        self.report_mlat_position = self.report_mlat_position_old
+                    elif return_result_format == 'ecef':
+                        self.report_mlat_position = self.report_mlat_position_ecef
+                    else:
+                        raise ValueError('invalid return_result_format, should be one of "old" or "ecef"')
+                else:
+                    self.report_mlat_position = self.report_mlat_position_discard
 
-                self.receiver_id = self.coordinator.new_receiver(self, user=self.user)
+                self.receiver = self.coordinator.new_receiver(connection=self,
+                                                              user=self.user,
+                                                              auth=hs.get('auth'),
+                                                              clock_epoch=self.clock_epoch,
+                                                              clock_freq=self.clock_freq)
 
             except KeyError as e:
                 deny = 'Missing field in handshake: ' + str(e)
@@ -155,20 +188,58 @@ client connection to be closed and cleaned up."""
 
         if deny:
             logging.info('Handshake failed: %s', deny)
-            self.write({'deny': [deny], 'reconnect_in': util.fuzzy(900)})
+            self.write_raw({'deny': [deny], 'reconnect_in': util.fuzzy(900)})
             return False
 
         # todo: MOTD
-        self.write(compress=self.compress,
-                   reconnect_in=util.fuzzy(60),
-                   selective_traffic=True,
-                   heartbeat=True,
-                   return_results=self.use_return_results)
+        self.write_raw(compress=self.compress,
+                       reconnect_in=util.fuzzy(60),
+                       selective_traffic=True,
+                       heartbeat=True,
+                       return_results=self.use_return_results)
 
         return True
 
-    def write(self, **kwargs):
+    def write_raw(self, **kwargs):
         self.w.write((json.dumps(kwargs) + '\n').encode('ascii'))
+
+    def write_zlib(self, **kwargs):
+        self._writebuf.append(json.dumps(kwargs))
+        if self._pending_flush is None:
+            self._pending_flush = asyncio.get_event_loop().call_later(0.5, self._flush_zlib)
+
+    def _flush_zlib(self):
+        self._pending_flush = None
+
+        if not self._writebuf:
+            return
+
+        if self._compressor is None:
+            self._compressor = zlib.compressobj(1)
+
+        data = b''
+        pending = False
+        for line in self._writebuf:
+            data += self._compressor.compress(line.encode('ascii') + b'\n')
+            pending = True
+
+            if len(data) >= 32768:
+                data += self._compressor.flush(zlib.Z_SYNC_FLUSH)
+                assert len(data) < 65536
+                assert data[-4:] == b'\x00\x00\xff\xff'
+                data = struct.pack('!H', len(data)-4) + data[:-4]
+                self.w.write(data)
+                data = b''
+                pending = False
+
+        if pending:
+            data += self._compressor.flush(zlib.Z_SYNC_FLUSH)
+            assert len(data) < 65536
+            assert data[-4:] == b'\x00\x00\xff\xff'
+            data = struct.pack('!H', len(data)-4) + data[:-4]
+            self.w.write(data)
+
+        self._writebuf = []
 
     @asyncio.coroutine
     def handle_line_messages(self):
@@ -221,7 +292,7 @@ client connection to be closed and cleaned up."""
                 raise ValueError('Client sent a packet that was not newline terminated')
 
     def process_message(self, line):
-        self.last_message_time = time.monotonic()
+        self._last_message_time = time.monotonic()
         msg = json.loads(line)
 
         if 'sync' in msg:
@@ -247,25 +318,103 @@ client connection to be closed and cleaned up."""
         even_message = bytes.fromhex(sync['em'])
         odd_message = bytes.fromhex(sync['om'])
 
-        self.coordinator.receiver_sync(self.receiver_id, even_time, odd_time, even_message, odd_message)
+        self.coordinator.receiver_sync(self.receiver, even_time, odd_time, even_message, odd_message)
 
     def process_mlat_message(self, mlat):
         t = float(mlat['t'])
         m = bytes.fromhex(mlat['m'])
 
-        self.coordinator.receiver_mlat(self.receiver_id, t, m)
+        self.coordinator.receiver_mlat(self.receiver, t, m)
 
     def process_seen_message(self, seen):
-        self.coordinator.receiver_tracking_add(self.receiver_id, {int(icao, 16) for icao in seen})
+        self.coordinator.receiver_tracking_add(self.receiver, {int(icao, 16) for icao in seen})
 
     def process_lost_message(self, lost):
-        self.coordinator.receiver_tracking_remove(self.receiver_id, {int(icao, 16) for icao in lost})
+        self.coordinator.receiver_tracking_remove(self.receiver, {int(icao, 16) for icao in lost})
 
     def process_input_connected_message(self, m):
-        self.coordinator.receiver_clock_reset(self.receiver_id)
+        self.coordinator.receiver_clock_reset(self.receiver)
 
     def process_input_disconnected_message(self, m):
-        self.coordinator.receiver_clock_reset(self.receiver_id)
+        self.coordinator.receiver_clock_reset(self.receiver)
 
     def process_heartbeat_message(self, m):
         pass
+
+    # Connection interface
+
+    # For traffic management, we update the local set and schedule a task to write it out in a little while.
+    def request_traffic(self, receiver, icao_set):
+        assert receiver is self.receiver
+
+        if not icao_set:
+            return
+
+        self._wanted_traffic.update(icao_set)
+        if self._pending_traffic_update is None:
+            self._pending_traffic_update = asyncio.get_event_loop().call_later(0.5, self.send_traffic_updates)
+
+    def suppress_traffic(self, receiver, icao_set):
+        assert receiver is self.receiver
+
+        if not icao_set:
+            return
+
+        self._wanted_traffic.difference_update(icao_set)
+        if self._pending_traffic_update is None:
+            self._pending_traffic_update = asyncio.get_event_loop().call_later(0.5, self.send_traffic_updates)
+
+    def send_traffic_updates(self):
+        self._pending_traffic_update = None
+
+        start_sending = self._wanted_traffic.difference(self._requested_traffic)
+        if start_sending:
+            self.send(start_sending=['{0:06x}'.format(i) for i in start_sending])
+
+        stop_sending = self._requested_traffic.difference(self._wanted_traffic)
+        if stop_sending:
+            self.send(stop_sending=['{0:06x}'.format(i) for i in stop_sending])
+
+        self._requested_traffic = set(self._wanted_traffic)
+
+    # one of these is assigned to report_mlat_position:
+    def report_mlat_position_discard(self, receiver,
+                                     icao, utc, ecef, ecef_cov, nstations):
+        # client is not interested
+        pass
+
+    def report_mlat_position_old(self, receiver,
+                                 icao, utc, ecef, ecef_cov, nstations):
+        # old client, use the old format (somewhat incomplete)
+        lat, lon, alt = latlon.ecef2llh(ecef[0], ecef[1], ecef[2])
+        self.send(result={'@': round(utc, 3),
+                          'addr': '{0:06x}'.format(icao),
+                          'lat': round(lat, 4),
+                          'lon': round(lon, 4),
+                          'alt': round(alt * MTOF, 0),
+                          'callsign': None,
+                          'squawk': None,
+                          'hdop': 0.0,
+                          'vdop': 0.0,
+                          'tdop': 0.0,
+                          'gdop': 0.0,
+                          'nstations': nstations})
+
+    def report_mlat_position_ecef(self, receiver,
+                                  icao, utc, ecef, ecef_cov, nstations):
+        # newer client
+        # ecef, cov rounded to ~10m precision
+        # cov is just the upper triangular part of the covariance matrix;
+        # the lower triangular part can be found by symmetry.
+        self.send(result={'@': round(utc, 3),
+                          'addr': '{0:06x}'.format(icao),
+                          'ecef': (round(ecef[0], -1),
+                                   round(ecef[1], -1),
+                                   round(ecef[2], -1)),
+                          'cov': (round(ecef_cov[0, 0], -2),
+                                  round(ecef_cov[0, 1], -2),
+                                  round(ecef_cov[0, 2], -2),
+                                  round(ecef_cov[1, 1], -2),
+                                  round(ecef_cov[1, 2], -2),
+                                  round(ecef_cov[2, 2], -2)),
+                          'nstat': nstations})

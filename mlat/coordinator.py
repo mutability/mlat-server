@@ -5,9 +5,11 @@ class ReceiverHandle(object):
     """Represents a particular connected receiver and the associated
     connection that manages it."""
 
-    def __init__(self, user, connection):
+    def __init__(self, user, connection, clock_epoch, clock_freq):
         self.user = user
         self.connection = connection
+        self.clock_epoch = clock_epoch
+        self.clock_freq = clock_freq
 
     def __str__(self):
         return self.user
@@ -25,10 +27,9 @@ class Coordinator(object):
     def __init__(self, authenticator=None):
         """Coordinator(authenticator=None) -> coordinator object.
 
-If authenticator is not None, it should be a callable that takes one "handle" arg
-plus keyword args. The handle is the newly created ReceiverHandle to authenticate;
-the authenticator may modify the handle if needed. The keyword args are any
-additional keyword args provided to new_receiver. The authenticator should either
+If authenticator is not None, it should be a callable that takes two arguments:
+the newly created ReceiverHandle, plus the 'auth' argument provided by the connection.
+The authenticator may modify the handle if needed. The authenticator should either
 return silently on success, or raise an exception (propagated to the caller) on
 failure.
 """
@@ -36,7 +37,7 @@ failure.
         self.receivers = {}    # keyed by username
         self.authenticator = authenticator
 
-    def new_receiver(self, connection, *, user, **kwargs):
+    def new_receiver(self, connection, user, auth, clock_epoch, clock_freq):
         """Assigns a new receiver ID for a given user.
         Returns the new receiver ID.
 
@@ -47,10 +48,10 @@ failure.
         if user in self.receivers:
             raise ValueError('User {user} is already connected'.format(user=user))
 
-        handle = ReceiverHandle(user, connection)
+        handle = ReceiverHandle(user, connection, clock_epoch, clock_freq)
 
         if self.authenticator is not None:
-            self.authenticator(handle, **kwargs)  # may raise ValueError if authentication fails
+            self.authenticator(handle, auth)  # may raise ValueError if authentication fails
 
         self.receivers[handle.user] = handle  # authenticator might update user
         return handle
