@@ -15,10 +15,10 @@ def start_client(r, w, **kwargs):
     host, port = w.transport.get_extra_info('peername')
     logging.info('Accepted new client connection from %s:%d', host, port)
     client = MlatClient(r, w, **kwargs)
-    client.start()   # schedules a coroutine task
+    client.start()
 
 
-class MlatClient:
+class MlatClient(object):
     write_heartbeat_interval = 30.0
     read_heartbeat_interval = 45.0
 
@@ -94,7 +94,7 @@ client connection to be closed and cleaned up."""
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
             if self.receiver_id is not None:
-                self.coordinator.client_logout(self.receiver_id)
+                self.coordinator.receiver_disconnect(self.receiver_id)
             self.transport.close()
 
     def process_handshake(self, line):
@@ -145,7 +145,7 @@ client connection to be closed and cleaned up."""
 
                 self.use_return_results = bool(hs.get('return_results', False))
 
-                self.receiver_id = self.coordinator.client_login(self, self.user)
+                self.receiver_id = self.coordinator.new_receiver(self, user=self.user)
 
             except KeyError as e:
                 deny = 'Missing field in handshake: ' + str(e)
@@ -265,7 +265,7 @@ client connection to be closed and cleaned up."""
         self.coordinator.receiver_clock_reset(self.receiver_id)
 
     def process_input_disconnected_message(self, m):
-        self.coordinator.receiver_gone(self.receiver_id)
+        self.coordinator.receiver_clock_reset(self.receiver_id)
 
     def process_heartbeat_message(self, m):
         pass
