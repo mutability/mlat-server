@@ -19,7 +19,7 @@ class Connection(object):
         receiver: the handle of the concerned receiver
         icao_set: a set of ICAO addresses (as ints) to start sending
         """
-        pass
+        raise NotImplementedError
 
     def suppress_traffic(self, receiver, icao_set):
         """Request that a receiver stops sending traffic for the given
@@ -28,7 +28,7 @@ class Connection(object):
         receiver: the handle of the concerned receiver
         icao_set: a set of ICAO addresses (as ints) to stop sending
         """
-        pass
+        raise NotImplementedError
 
     def report_mlat_position(self, receiver,
                              icao, utc, ecef, ecef_cov, nstations):
@@ -41,4 +41,4 @@ class Connection(object):
         ecef_cov: a 3x3 matrix giving the covariance matrix of ecef
         nstations: the number of stations that contributed to the result
         """
-        pass
+        raise NotImplementedError
