@@ -38,7 +38,7 @@ failure.
 
         self.receivers = {}    # keyed by username
         self.authenticator = authenticator
-        self.tracker = Tracker(self)
+        self.tracker = Tracker()
 
     def new_receiver(self, connection, user, auth, clock_epoch, clock_freq):
         """Assigns a new receiver ID for a given user.

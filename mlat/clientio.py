@@ -20,7 +20,7 @@ def start_json_client(r, w, **kwargs):
     client.start()
 
 
-class JsonClient(object, connection.Connection):
+class JsonClient(connection.Connection):
     write_heartbeat_interval = 30.0
     read_heartbeat_interval = 45.0
 
@@ -71,7 +71,7 @@ class JsonClient(object, connection.Connection):
                 self._read_task.cancel()  # finally block will do cleanup
 
             # write a heartbeat message
-            self.write(heartbeat=round(time.time(), 3))
+            self.send(heartbeat=round(time.time(), 3))
 
     @asyncio.coroutine
     def handle_connection(self):
@@ -98,14 +98,32 @@ class JsonClient(object, connection.Connection):
 
             yield from self.handle_messages()
 
+        except asyncio.IncompleteReadError:
+            logging.info('Client EOF')
+
+        except asyncio.CancelledError:
+            logging.info('Client heartbeat timeout or other cancellation')
+
         except Exception:
             logging.exception('Exception handling client')
 
         finally:
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
+            logging.info('Disconnected')
+
+            self.send = self.write_discard  # suppress all output from hereon in
+
+            # tell the coordinator, this might cause traffic to be suppressed
+            # from other receivers
             if self.receiver is not None:
                 self.coordinator.receiver_disconnect(self.receiver)
+
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+            if self._pending_flush is not None:
+                self._pending_flush.cancel()
+            if self._pending_traffic_update is not None:
+                self._pending_traffic_update.cancel()
+
             self.transport.close()
 
     def process_handshake(self, line):
@@ -126,7 +144,7 @@ class JsonClient(object, connection.Connection):
                     if c in peer_compression_methods:
                         self.compress = c
                         self.handle_messages = readmeth
-                        self.write = writemeth
+                        self.send = writemeth
                         break
                 if self.compress is None:
                     raise ValueError('No mutually usable compression type')
@@ -188,7 +206,7 @@ class JsonClient(object, connection.Connection):
 
         if deny:
             logging.info('Handshake failed: %s', deny)
-            self.write_raw({'deny': [deny], 'reconnect_in': util.fuzzy(900)})
+            self.write_raw(deny=[deny], reconnect_in=util.fuzzy(900))
             return False
 
         # todo: MOTD
@@ -201,12 +219,16 @@ class JsonClient(object, connection.Connection):
         return True
 
     def write_raw(self, **kwargs):
-        self.w.write((json.dumps(kwargs) + '\n').encode('ascii'))
+        line = json.dumps(kwargs) + '\n'
+        self.w.write(line.encode('ascii'))
 
     def write_zlib(self, **kwargs):
         self._writebuf.append(json.dumps(kwargs))
         if self._pending_flush is None:
             self._pending_flush = asyncio.get_event_loop().call_later(0.5, self._flush_zlib)
+
+    def write_discard(self, **kwargs):
+        pass
 
     def _flush_zlib(self):
         self._pending_flush = None

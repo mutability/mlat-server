@@ -31,7 +31,7 @@ class Tracker(object):
 
                 for other in ac.tracked_by:
                     other.connection.request_traffic(other, set([icao]))
-                ac.request_from.update(ac.tracked_by)
+                ac.requested_from.update(ac.tracked_by)
 
             ac.tracked_by.add(receiver)
 
@@ -45,7 +45,7 @@ class Tracker(object):
                 ac.tracked_by.remove(receiver)
                 if len(ac.tracked_by) == 1:  # 2 -> 1 receivers
                     for other in ac.requested_from:
-                        other.connection.suppress_traffic(set([icao]))
+                        other.connection.suppress_traffic(other, set([icao]))
                     ac.requested_from.clear()
 
         receiver.connection.suppress_traffic(receiver, icao_set)
