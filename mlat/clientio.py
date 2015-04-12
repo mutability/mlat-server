@@ -5,18 +5,23 @@ import zlib
 import logging
 import json
 import struct
+import time
 
 from . import util
 from . import latlon
 
 
-@asyncio.coroutine
 def start_client(r, w, **kwargs):
+    host, port = w.transport.get_extra_info('peername')
+    logging.info('Accepted new client connection from %s:%d', host, port)
     client = MlatClient(r, w, **kwargs)
-    yield from client.run()
+    client.start()   # schedules a coroutine task
 
 
 class MlatClient:
+    write_heartbeat_interval = 30.0
+    read_heartbeat_interval = 45.0
+
     def __init__(self, reader, writer, *, coordinator):
         self.r = reader
         self.w = writer
@@ -26,17 +31,59 @@ class MlatClient:
             ('zlib', self.handle_zlib_messages),
             ('none', self.handle_line_messages),
         )
-        self.client_id = None
+        self.receiver_id = None
+        self.read_task = None
+        self.last_message_time = None
+
+    def start(self):
+        self.read_task = asyncio.async(self.handle_connection())
 
     @asyncio.coroutine
-    def run(self):
-        host, port = self.transport.get_extra_info('peername')
-        logging.info('Accepted new client connection from %s:%d', host, port)
+    def handle_heartbeats(self):
+        """A coroutine that:
+
+ * Periodicallys write heartbeat messages to the client.
+ * Monitors when the last message from the client was seen, and closes down the connection
+  if the read heartbeat interval is exceeded.
+
+This coroutine is started as a task from handle_connection() after the initial
+handshake is complete."""
+
+        while True:
+            # wait a while..
+            yield from asyncio.sleep(self.write_heartbeat_interval)
+
+            # if we have seen no activity recently, declare the
+            # connection dead and close it down
+            if (time.monotonic() - self.last_message_time) > self.read_heartbeat_interval:
+                logging.warn("Client timeout, no recent messages seen, closing connection")
+                self.read_task.cancel()  # finally block will do cleanup
+
+            # write a heartbeat message
+            self.write(heartbeat=round(time.time(), 3))
+
+    @asyncio.coroutine
+    def handle_connection(self):
+        """A coroutine that handle reading from the client and processing messages.
+
+This does the initial handshake, then reads and processes messages after the handshake is
+complete.
+
+It also does any client cleanup needed when the connection is closed.
+
+This coroutine's task is stashed as self.read_task; cancelling this task will cause the
+client connection to be closed and cleaned up."""
+
+        heartbeat_task = None
 
         try:
             hs = yield from asyncio.wait_for(self.r.readline(), timeout=30.0)
             if not self.process_handshake(hs):
                 return
+
+            # start heartbeat handling now that the handshake is done
+            self.last_message_time = time.monotonic()
+            heartbeat_task = asyncio.async(self.handle_heartbeats())
 
             yield from self.handle_messages()
 
@@ -44,8 +91,10 @@ class MlatClient:
             logging.exception('Exception handling client')
 
         finally:
-            if self.client_id is not None:
-                self.coordinator.client_logout(self.client_id)
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+            if self.receiver_id is not None:
+                self.coordinator.client_logout(self.receiver_id)
             self.transport.close()
 
     def process_handshake(self, line):
@@ -96,7 +145,7 @@ class MlatClient:
 
                 self.use_return_results = bool(hs.get('return_results', False))
 
-                self.client_id = self.coordinator.client_login(self, self.user)
+                self.receiver_id = self.coordinator.client_login(self, self.user)
 
             except KeyError as e:
                 deny = 'Missing field in handshake: ' + str(e)
@@ -172,6 +221,7 @@ class MlatClient:
                 raise ValueError('Client sent a packet that was not newline terminated')
 
     def process_message(self, line):
+        self.last_message_time = time.monotonic()
         msg = json.loads(line)
 
         if 'sync' in msg:
@@ -197,27 +247,25 @@ class MlatClient:
         even_message = bytes.fromhex(sync['em'])
         odd_message = bytes.fromhex(sync['om'])
 
-        self.coordinator.client_sync(self.client_id, even_time, odd_time, even_message, odd_message)
+        self.coordinator.receiver_sync(self.receiver_id, even_time, odd_time, even_message, odd_message)
 
     def process_mlat_message(self, mlat):
         t = float(mlat['t'])
         m = bytes.fromhex(mlat['m'])
 
-        self.coordinator.client_mlat(self.client_id, t, m)
+        self.coordinator.receiver_mlat(self.receiver_id, t, m)
 
     def process_seen_message(self, seen):
-        for icao in seen:
-            self.coordinator.client_tracking(self.client_id, icao)
+        self.coordinator.receiver_tracking_add(self.receiver_id, {int(icao, 16) for icao in seen})
 
     def process_lost_message(self, lost):
-        for icao in lost:
-            self.coordinator.client_not_tracking(self.client_id, icao)
+        self.coordinator.receiver_tracking_remove(self.receiver_id, {int(icao, 16) for icao in lost})
 
     def process_input_connected_message(self, m):
-        pass
+        self.coordinator.receiver_clock_reset(self.receiver_id)
 
     def process_input_disconnected_message(self, m):
-        self.coordinator.client_reset(self.client_id)
+        self.coordinator.receiver_gone(self.receiver_id)
 
     def process_heartbeat_message(self, m):
         pass
