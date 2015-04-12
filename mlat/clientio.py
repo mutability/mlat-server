@@ -30,7 +30,7 @@ class JsonClient(object, connection.Connection):
         self.coordinator = coordinator
         self.transport = writer.transport
         self.compression_methods = (
-            ('zlib_bi', self.handle_zlib_messages, self.write_zlib),
+            ('zlib2', self.handle_zlib_messages, self.write_zlib),
             ('zlib', self.handle_zlib_messages, self.write_raw),
             ('none', self.handle_line_messages, self.write_raw)
         )

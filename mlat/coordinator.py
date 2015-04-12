@@ -1,5 +1,7 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
+from .tracker import Tracker
+
 
 class ReceiverHandle(object):
     """Represents a particular connected receiver and the associated
@@ -36,6 +38,7 @@ failure.
 
         self.receivers = {}    # keyed by username
         self.authenticator = authenticator
+        self.tracker = Tracker(self)
 
     def new_receiver(self, connection, user, auth, clock_epoch, clock_freq):
         """Assigns a new receiver ID for a given user.
@@ -61,6 +64,7 @@ failure.
 
         if self.receivers.get(receiver.user) is receiver:
             # TODO: clock cleanup, once we're doing clock sync
+            self.tracker.remove_all(receiver)
             del self.receivers[receiver.user]
 
     def receiver_sync(self, receiver,
@@ -74,11 +78,11 @@ failure.
 
     def receiver_tracking_add(self, receiver, icao_set):
         """Update a receiver's tracking set by adding some aircraft."""
-        pass
+        self.tracker.add(receiver, icao_set)
 
     def receiver_tracking_remove(self, receiver, icao_set):
         """Update a receiver's tracking set by removing some aircraft."""
-        pass
+        self.tracker.remove(receiver, icao_set)
 
     def receiver_clock_reset(self, receiver):
         """Reset current clock synchronization for a receiver."""
