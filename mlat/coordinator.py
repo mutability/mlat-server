@@ -1,17 +1,20 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
-from .tracker import Tracker
+from . import tracker
+from . import clocksync
+from . import clocktrack
 
 
 class ReceiverHandle(object):
     """Represents a particular connected receiver and the associated
     connection that manages it."""
 
-    def __init__(self, user, connection, clock_epoch, clock_freq):
+    def __init__(self, user, connection, clock, position):
         self.user = user
         self.connection = connection
-        self.clock_epoch = clock_epoch
-        self.clock_freq = clock_freq
+        self.clock = clock
+        self.position = position
+        self.dead = False
 
     def __str__(self):
         return self.user
@@ -38,20 +41,20 @@ failure.
 
         self.receivers = {}    # keyed by username
         self.authenticator = authenticator
-        self.tracker = Tracker()
+        self.tracker = tracker.Tracker()
+        self.clock_tracker = clocktrack.ClockTracker()
 
-    def new_receiver(self, connection, user, auth, clock_epoch, clock_freq):
+    def new_receiver(self, connection, user, auth, position, clock_type):
         """Assigns a new receiver ID for a given user.
         Returns the new receiver ID.
-
-        Keyword args provide user authentication.
 
         May raise ValueError to disallow this receiver."""
 
         if user in self.receivers:
             raise ValueError('User {user} is already connected'.format(user=user))
 
-        handle = ReceiverHandle(user, connection, clock_epoch, clock_freq)
+        clock = clocksync.make_clock(clock_type)
+        handle = ReceiverHandle(user, connection, clock, position)
 
         if self.authenticator is not None:
             self.authenticator(handle, auth)  # may raise ValueError if authentication fails
@@ -62,15 +65,18 @@ failure.
     def receiver_disconnect(self, receiver):
         """Notes that the given receiver has disconnected."""
 
+        receiver.dead = True
         if self.receivers.get(receiver.user) is receiver:
-            # TODO: clock cleanup, once we're doing clock sync
             self.tracker.remove_all(receiver)
+            self.clock_tracker.receiver_disconnect(receiver)
             del self.receivers[receiver.user]
 
     def receiver_sync(self, receiver,
                       even_time, odd_time, even_message, odd_message):
         """Receive a DF17 message pair for clock synchronization."""
-        pass
+        self.clock_tracker.receiver_sync(receiver,
+                                         even_time, odd_time,
+                                         even_message, odd_message)
 
     def receiver_mlat(self, receiver, timestamp, message):
         """Receive a message for multilateration."""

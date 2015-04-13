@@ -8,51 +8,59 @@ import bisect
 class Clock(object):
     """A particular clock. Stores characteristics of a clock,
     and acts as part of the key in the clock pairing map.
-
-    For clocks with fixed synchronization, for example GPS time,
-    all receivers will share the same Clock object.
     """
 
-    def __init__(self, name, freq, max_drift_error, jitter):
-        self.name = name
+    def __init__(self, epoch, freq, max_freq_error, jitter):
+        """Create a new clock representation.
+
+        epoch: a string indicating a fixed epoch, or None if freerunning
+        freq: the clock frequency in Hz (float)
+        max_freq_error: the maximum expected relative frequency error (i.e. 1e-6 is 1PPM) (float)
+        jitter: the expected jitter of a typical reading, in seconds, standard deviation  (float)
+        """
+        self.epoch = epoch
         self.freq = freq
-        self.max_drift_error = max_drift_error
+        self.max_freq_error = max_freq_error
         self.jitter = jitter
 
 
-GPS_NANO_CLOCK = Clock(name="GPS nanoseconds", freq=1e9, max_drift_error=1.0, jitter=50e-9)
-
-
-def make_clock(receiver, clock_type, clock_freq):
-    if clock_type == 'gps_nano':
-        return GPS_NANO_CLOCK
+def make_clock(clock_type):
+    if clock_type == 'radarcape_gps':
+        return Clock(epoch='gps_midnight', freq=1e9, max_freq_error=5e-6, jitter=50e-9)
+    if clock_type == 'beast':
+        return Clock(epoch=None, freq=12e6, max_freq_error=5e-6, jitter=100e-9)
     if clock_type == 'dump1090':
-        return Clock(name='Clock for ' + receiver.user,
-                     freq=12e6, max_drift_error=100.0, jitter=1e-6)
+        return Clock(epoch=None, freq=12e6, max_freq_error=100e-6, jitter=500e-9)
+    if clock_type == 'sbs3':
+        return Clock(epoch=None, freq=20e6, max_freq_error=5e-6, jitter=100e-9)
     raise NotImplementedError
 
 
 class ClockPairing(object):
     """Describes the current relative characteristics of a pair of clocks."""
 
-    K_DRIFT = 0.05
+    KP = 0.05
+    KI = 1e-6
 
     def __init__(self, base_clock, peer_clock):
         self.base_clock = base_clock
         self.peer_clock = peer_clock
+        self.raw_drift = None
         self.drift = None
+        self.i_drift = None
         self.n = 0
         self.ts_base = []
         self.ts_peer = []
         self.var = []
-        self.var_sum = 0
+        self.var_sum = 0.0
         self.outliers = 0
-        self.cumulative_error = 0
+        self.cumulative_error = 0.0
 
         self.relative_freq = peer_clock.freq / base_clock.freq
-        self.drift_max = base_clock.max_drift_error + peer_clock.max_drift_error
+        self.i_relative_freq = base_clock.freq / peer_clock.freq
+        self.drift_max = base_clock.max_freq_error + peer_clock.max_freq_error
         self.drift_max_delta = self.drift_max / 10.0
-        self.outlier_threshold = 5 * (peer_clock.jitter + base_clock.jitter) * peer_clock.freq
+        self.outlier_threshold = 5 * (peer_clock.jitter + base_clock.jitter)   # 5 sigma
 
         now = time.monotonic()
         self.expiry = now + 120.0
@@ -92,7 +100,7 @@ class ClockPairing(object):
         # predict from existing data, compare to actual value
         if self.n > 0:
             prediction = self.predict_peer(base_ts)
-            prediction_error = prediction - peer_ts
+            prediction_error = (prediction - peer_ts) / self.peer_clock.freq
 
             if abs(prediction_error) > self.outlier_threshold and abs(prediction_error) > self.error * 5:
                 self.outliers += 1
@@ -128,7 +136,10 @@ class ClockPairing(object):
             self.n -= i
 
     def _update_drift(self, base_interval, peer_interval):
-        new_drift = (peer_interval / base_interval) / self.relative_freq - 1.0
+        # try to reduce the effects of catastropic cancellation here:
+        #new_drift = (peer_interval / base_interval) / self.relative_freq - 1.0
+        adjusted_base_interval = base_interval * self.relative_freq
+        new_drift = (peer_interval - adjusted_base_interval) / adjusted_base_interval
 
         if abs(new_drift) > self.drift_max:
             # Bad data, ignore entirely
@@ -136,16 +147,19 @@ class ClockPairing(object):
 
         if self.drift is None:
             # First sample, just trust it outright
-            self.drift = new_drift
+            self.raw_drift = self.drift = new_drift
+            self.i_drift = -self.drift / (1.0 + self.drift)
             return True
 
-        drift_error = new_drift - self.drift
+        drift_error = new_drift - self.raw_drift
         if abs(drift_error) > self.drift_max_delta:
             # Too far away from the value we expect, discard
             return False
 
         # move towards the new value
-        self.drift += drift_error * self.K_DRIFT
+        self.raw_drift += drift_error * self.KP
+        self.drift = self.raw_drift + self.KI * self.cumulative_error
+        self.i_drift = -self.drift / (1.0 + self.drift)
         return True
 
     def _update_offset(self, base_ts, peer_ts, prediction_error):
@@ -187,18 +201,22 @@ class ClockPairing(object):
         i = bisect.bisect_left(self.ts_base, base_ts)
         if i == 0:
             # extrapolate before first point
-            return (self.ts_peer[0] +
-                    (base_ts - self.ts_base[0]) * self.relative_freq * (1 + self.drift))
+            elapsed = base_ts - self.ts_base[0]
+            return int(round((self.ts_peer[0] +
+                              elapsed * self.relative_freq +
+                              elapsed * self.relative_freq * self.drift)))
         elif i == self.n:
             # extrapolate after last point
-            return (self.ts_peer[-1] +
-                    (base_ts - self.ts_base[-1]) * self.relative_freq * (1 + self.drift))
+            elapsed = base_ts - self.ts_base[-1]
+            return int(round((self.ts_peer[-1] +
+                              elapsed * self.relative_freq +
+                              elapsed * self.relative_freq * self.drift)))
         else:
             # interpolate between two points
-            return (self.ts_peer[i-1] +
-                    (self.ts_peer[i] - self.ts_peer[i-1]) *
-                    (base_ts - self.ts_base[i-1]) /
-                    (self.ts_base[i] - self.ts_base[i-1]))
+            return int(round((self.ts_peer[i-1] +
+                              (self.ts_peer[i] - self.ts_peer[i-1]) *
+                              (base_ts - self.ts_base[i-1]) /
+                              (self.ts_base[i] - self.ts_base[i-1]))))
 
     def predict_base(self, peer_ts):
         if self.n == 0:
@@ -207,15 +225,19 @@ class ClockPairing(object):
         i = bisect.bisect_left(self.ts_peer, peer_ts)
         if i == 0:
             # extrapolate before first point
-            return (self.ts_base[0] +
-                    (peer_ts - self.ts_peer[0]) / self.relative_freq / (1 + self.drift))
+            elapsed = peer_ts - self.ts_peer[0]
+            return int(round((self.ts_base[0] +
+                              elapsed * self.i_relative_freq +
+                              elapsed * self.i_relative_freq * self.i_drift)))
         elif i == self.n:
             # extrapolate after last point
-            return (self.ts_base[-1] +
-                    (peer_ts - self.ts_peer[-1]) / self.relative_freq / (1 + self.drift))
+            elapsed = peer_ts - self.ts_peer[-1]
+            return int(round((elapsed +
+                              elapsed * self.i_relative_freq +
+                              elapsed * self.i_relative_freq * self.i_drift)))
         else:
             # interpolate between two points
-            return (self.ts_base[i-1] +
-                    (self.ts_base[i] - self.ts_base[i-1]) *
-                    (peer_ts - self.ts_peer[i-1]) /
-                    (self.ts_peer[i] - self.ts_peer[i-1]))
+            return int(round((self.ts_base[i-1] +
+                              (self.ts_base[i] - self.ts_base[i-1]) *
+                              (peer_ts - self.ts_peer[i-1]) /
+                              (self.ts_peer[i] - self.ts_peer[i-1]))))

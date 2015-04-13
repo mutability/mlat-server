@@ -149,30 +149,24 @@ class JsonClient(connection.Connection):
                 if self.compress is None:
                     raise ValueError('No mutually usable compression type')
 
-                self.lat = float(hs['lat'])
-                if self.lat < -90 or self.lat > 90:
+                lat = float(hs['lat'])
+                if lat < -90 or lat > 90:
                     raise ValueError('invalid latitude, should be -90 .. 90')
 
-                self.lon = float(hs['lon'])
-                if self.lon < -180 or self.lon > 360:
+                lon = float(hs['lon'])
+                if lon < -180 or lon > 360:
                     raise ValueError('invalid longitude, should be -180 .. 360')
-                if self.lon > 180:
-                    self.lon = self.lon - 180
+                if lon > 180:
+                    lon = lon - 180
 
-                self.alt = float(hs['alt'])
-                if self.alt < -1000 or self.alt > 10000:
+                alt = float(hs['alt'])
+                if alt < -1000 or alt > 10000:
                     raise ValueError('invalid altitude, should be -1000 .. 10000')
 
-                self.ecef = latlon.llh2ecef(self.lat, self.lon, self.alt)
+                ecef = latlon.llh2ecef((lat, lon, alt))
 
-                self.clock_epoch = hs.get('clock_epoch', 'freerun')
-                if self.clock_epoch not in ('freerun', 'gps_start_of_day'):
-                    raise ValueError('invalid clock_epoch, should be one of freerun or gps_start_of_day')
-                self.clock_freq = float(hs.get('clock_freq', 12e6))
-                if self.clock_freq < 2e6 or self.clock_freq > 1e9:
-                    raise ValueError('invalid clock_freq, should be 2MHz - 1000MHz')
-
-                self.user = str(hs['user'])
+                clock_type = str(hs.get('clock_type', 'dump1090'))
+                user = str(hs['user'])
 
                 if not hs.get('heartbeat', False):
                     raise ValueError('must use heartbeats')
@@ -193,10 +187,10 @@ class JsonClient(connection.Connection):
                     self.report_mlat_position = self.report_mlat_position_discard
 
                 self.receiver = self.coordinator.new_receiver(connection=self,
-                                                              user=self.user,
+                                                              user=user,
                                                               auth=hs.get('auth'),
-                                                              clock_epoch=self.clock_epoch,
-                                                              clock_freq=self.clock_freq)
+                                                              clock_type=clock_type,
+                                                              position=ecef)
 
             except KeyError as e:
                 deny = 'Missing field in handshake: ' + str(e)
@@ -223,7 +217,7 @@ class JsonClient(connection.Connection):
         self.w.write(line.encode('ascii'))
 
     def write_zlib(self, **kwargs):
-        self._writebuf.append(json.dumps(kwargs))
+        self._writebuf.append(json.dumps(kwargs) + '\n')
         if self._pending_flush is None:
             self._pending_flush = asyncio.get_event_loop().call_later(0.5, self._flush_zlib)
 
@@ -239,26 +233,28 @@ class JsonClient(connection.Connection):
         if self._compressor is None:
             self._compressor = zlib.compressobj(1)
 
-        data = b''
+        data = bytearray(2)
         pending = False
         for line in self._writebuf:
-            data += self._compressor.compress(line.encode('ascii') + b'\n')
+            data += self._compressor.compress(line.encode('ascii'))
             pending = True
 
             if len(data) >= 32768:
                 data += self._compressor.flush(zlib.Z_SYNC_FLUSH)
-                assert len(data) < 65536
-                assert data[-4:] == b'\x00\x00\xff\xff'
-                data = struct.pack('!H', len(data)-4) + data[:-4]
+                #assert data[-4:] == b'\x00\x00\xff\xff'
+                del data[-4:]
+                assert len(data) < 65538
+                data[0:2] = struct.pack('!H', len(data)-2)
                 self.w.write(data)
-                data = b''
+                del data[2:]
                 pending = False
 
         if pending:
             data += self._compressor.flush(zlib.Z_SYNC_FLUSH)
-            assert len(data) < 65536
-            assert data[-4:] == b'\x00\x00\xff\xff'
-            data = struct.pack('!H', len(data)-4) + data[:-4]
+            #assert data[-4:] == b'\x00\x00\xff\xff'
+            del data[-4:]
+            assert len(data) < 65538
+            data[0:2] = struct.pack('!H', len(data)-2)
             self.w.write(data)
 
         self._writebuf = []
@@ -408,7 +404,7 @@ class JsonClient(connection.Connection):
     def report_mlat_position_old(self, receiver,
                                  icao, utc, ecef, ecef_cov, nstations):
         # old client, use the old format (somewhat incomplete)
-        lat, lon, alt = latlon.ecef2llh(ecef[0], ecef[1], ecef[2])
+        lat, lon, alt = latlon.ecef2llh(ecef)
         self.send(result={'@': round(utc, 3),
                           'addr': '{0:06x}'.format(icao),
                           'lat': round(lat, 4),

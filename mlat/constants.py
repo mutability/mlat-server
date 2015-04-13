@@ -2,11 +2,8 @@
 
 import math
 
-# clock frequency for timing
-XTAL = 12000000
-
-# signal propagation speed in metres per clockcycle
-Cair = 299792458 / 1.0003 / XTAL
+# signal propagation speed in metres per second
+Cair = 299792458 / 1.0003
 
 # degrees to radians
 DTOR = math.pi / 180.0
