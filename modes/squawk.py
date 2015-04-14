@@ -5,9 +5,9 @@ __all__ = ('decode_id13',)
 
 def _make_upper_table():
     ut = []
-    for i in range(32):
+    for i in range(64):
         v = 0
-        id13 = i << 8
+        id13 = i << 7
         if id13 & 0x1000:
             v |= 0x0010  # C1
         if id13 & 0x0800:
@@ -18,15 +18,15 @@ def _make_upper_table():
             v |= 0x2000  # A2
         if id13 & 0x0100:
             v |= 0x0040  # C4
+        if id13 & 0x0080:
+            v |= 0x4000  # A4
         ut.append(v)
     return ut
 
 def _make_lower_table():
     lt = []
-    for id13 in range(256):
+    for id13 in range(64):
         v = 0
-        if id13 & 0x0080:
-            v |= 0x4000  # A4
         # 0040 unused (M/X)
         if id13 & 0x0020:
             v |= 0x0100  # B1
@@ -53,7 +53,7 @@ def decode_id13(id13):
 
     Returns the squawk as a 4-character string."""
 
-    return '{0:04x}'.format(_lt[id13 & 255] | _ut[id13 >> 8])
+    return '{0:04x}'.format(_lt[id13 & 63] | _ut[id13 >> 7])
 
 
 if __name__ == '__main__':
