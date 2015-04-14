@@ -3,6 +3,7 @@
 
 __all__ = ('decode_id13',)
 
+
 def _make_upper_table():
     ut = []
     for i in range(64):
@@ -22,6 +23,7 @@ def _make_upper_table():
             v |= 0x4000  # A4
         ut.append(v)
     return ut
+
 
 def _make_lower_table():
     lt = []
@@ -43,6 +45,7 @@ def _make_lower_table():
         lt.append(v)
 
     return lt
+
 
 def decode_id13(id13):
     """Decode a 13-bit Mode A squawk.
