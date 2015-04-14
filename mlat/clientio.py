@@ -8,7 +8,7 @@ import struct
 import time
 
 from . import util
-from . import latlon
+from . import geodesy
 from . import connection
 from .constants import MTOF
 
@@ -163,7 +163,7 @@ class JsonClient(connection.Connection):
                 if alt < -1000 or alt > 10000:
                     raise ValueError('invalid altitude, should be -1000 .. 10000')
 
-                ecef = latlon.llh2ecef((lat, lon, alt))
+                ecef = geodesy.llh2ecef((lat, lon, alt))
 
                 clock_type = str(hs.get('clock_type', 'dump1090'))
                 user = str(hs['user'])
@@ -205,7 +205,7 @@ class JsonClient(connection.Connection):
 
         # todo: MOTD
         self.write_raw(compress=self.compress,
-                       reconnect_in=util.fuzzy(60),
+                       reconnect_in=util.fuzzy(15),
                        selective_traffic=True,
                        heartbeat=True,
                        return_results=self.use_return_results)
@@ -404,7 +404,7 @@ class JsonClient(connection.Connection):
     def report_mlat_position_old(self, receiver,
                                  icao, utc, ecef, ecef_cov, nstations):
         # old client, use the old format (somewhat incomplete)
-        lat, lon, alt = latlon.ecef2llh(ecef)
+        lat, lon, alt = geodesy.ecef2llh(ecef)
         self.send(result={'@': round(utc, 3),
                           'addr': '{0:06x}'.format(icao),
                           'lat': round(lat, 4),

@@ -3,11 +3,12 @@
 import asyncio
 import bisect
 import functools
+import logging
 
-from . import latlon
+import modes
+import modes.cpr
+from . import geodesy
 from . import clocksync
-from . import cpr
-from . import modes
 from .constants import MAX_RANGE, FTOM, Cair
 
 
@@ -75,53 +76,58 @@ class ClockTracker(object):
         # basic validity
         even_message = modes.decode(even_message)
         if ((not even_message or
-             even_message.df != 17 or
+             even_message.DF != 17 or
              not even_message.crc_ok or
-             even_message.me.msgtype != modes.ESType.AIRBORNE_POSITION or
-             even_message.me.fflag)):
+             even_message.estype != modes.message.ESType.airborne_position or
+             even_message.F)):
             return
 
         odd_message = modes.decode(odd_message)
         if ((not odd_message or
-             odd_message.df != 17 or
+             odd_message.DF != 17 or
              not odd_message.crc_ok or
-             odd_message.me.msgtype != modes.ESType.AIRBORNE_POSITION or
-             odd_message.me.fflag)):
+             odd_message.estype != modes.message.ESType.airborne_position or
+             not odd_message.F)):
             return
 
         # quality checks
-        if even_message.nuc < 7 or even_message.altitude is None:
+        if even_message.nuc < 6 or even_message.altitude is None:
             return
 
-        if odd_message.nuc < 7 or odd_message.altitude is None:
+        if odd_message.nuc < 6 or odd_message.altitude is None:
             return
 
         if abs(even_message.altitude - odd_message.altitude) > 5000:
             return
 
         # find global positions
-        even_lat, even_lon, odd_lat, odd_lon = cpr.decode(even_message.me.lat,
-                                                          even_message.me.lon,
-                                                          odd_message.me.lat,
-                                                          odd_message.me.lon)
-        if even_lat is None or odd_lat is None:
+        try:
+            even_lat, even_lon, odd_lat, odd_lon = modes.cpr.decode(even_message.LAT,
+                                                                    even_message.LON,
+                                                                    odd_message.LAT,
+                                                                    odd_message.LON)
+        except ValueError:
             return
 
         # range checks
-        even_ecef = latlon.llh2ecef((even_lat,
-                                     even_lon,
-                                     even_message.altitude * FTOM))
-        if latlon.ecef_distance(even_ecef, receiver.position) > MAX_RANGE:
+        even_ecef = geodesy.llh2ecef((even_lat,
+                                      even_lon,
+                                      even_message.altitude * FTOM))
+        if geodesy.ecef_distance(even_ecef, receiver.position) > MAX_RANGE:
+            logging.info("  -> even message range check failed")
             return
 
-        odd_ecef = latlon.llh2ecef((odd_lat,
-                                    odd_lon,
-                                    odd_message.altitude * FTOM))
-        if latlon.ecef_distance(odd_ecef, receiver.position) > MAX_RANGE:
+        odd_ecef = geodesy.llh2ecef((odd_lat,
+                                     odd_lon,
+                                     odd_message.altitude * FTOM))
+        if geodesy.ecef_distance(odd_ecef, receiver.position) > MAX_RANGE:
+            logging.info("  -> odd message range check failed")
             return
 
-        if latlon.ecef_distance(even_ecef, odd_ecef) > 10000:
+        if geodesy.ecef_distance(even_ecef, odd_ecef) > 10000:
+            logging.info("  -> inter-message range check failed")
             return
+
 
         # valid. Create a new sync point.
         if even_time < odd_time:
@@ -181,6 +187,8 @@ class ClockTracker(object):
                     self._do_sync(syncpoint.posA, syncpoint.posB, r1, t1A, t1B, r0, t0A, t0B)
 
     def _do_sync(self, posA, posB, r0, t0A, t0B, r1, t1A, t1B):
+        logging.info("do_sync({0},{1})".format(r0, r1))
+
         # find or create clock pair
         k = (r0, r1)
         pairing = self.clock_pairs.get(k)
@@ -188,10 +196,10 @@ class ClockTracker(object):
             pairing = clocksync.ClockPairing(r0.clock, r1.clock)
             self.clock_pairs[k] = pairing
 
-        range0A = latlon.ecef_distance(posA, r0.position)
-        range0B = latlon.ecef_distance(posB, r0.position)
-        range1A = latlon.ecef_distance(posA, r1.position)
-        range1B = latlon.ecef_distance(posB, r1.position)
+        range0A = geodesy.ecef_distance(posA, r0.position)
+        range0B = geodesy.ecef_distance(posB, r0.position)
+        range1A = geodesy.ecef_distance(posA, r1.position)
+        range1B = geodesy.ecef_distance(posB, r1.position)
 
         # propagation delays
         delay0A = range0A / Cair

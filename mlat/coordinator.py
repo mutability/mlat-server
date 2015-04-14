@@ -16,6 +16,9 @@ class ReceiverHandle(object):
         self.position = position
         self.dead = False
 
+    def __lt__(self, other):
+        return id(self) < id(other)
+
     def __str__(self):
         return self.user
 

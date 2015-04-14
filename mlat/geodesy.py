@@ -73,4 +73,4 @@ def greatcircle(p0, p1):
         math.sin(lat0) * math.sin(lat1) +
         math.cos(lat0) * math.cos(lat1) * math.cos(abs(lon0 - lon1)))
 
-ecef_distance = scipy.spatial.distance.euclidian
+ecef_distance = scipy.spatial.distance.euclidean

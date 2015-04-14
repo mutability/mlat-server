@@ -3,6 +3,8 @@
 import math
 import time
 import bisect
+import logging
+from contextlib import closing
 
 
 class Clock(object):
@@ -40,7 +42,7 @@ class ClockPairing(object):
     """Describes the current relative characteristics of a pair of clocks."""
 
     KP = 0.05
-    KI = 1e-6
+    KI = 0.01
 
     def __init__(self, base_clock, peer_clock):
         self.base_clock = base_clock
@@ -100,9 +102,11 @@ class ClockPairing(object):
         # predict from existing data, compare to actual value
         if self.n > 0:
             prediction = self.predict_peer(base_ts)
-            prediction_error = (prediction - peer_ts) / self.peer_clock.freq
+            prediction_error = (prediction - peer_ts) / self.peer_clock.freq            
+            logging.info("{0}: predicted: {1} got: {2} error: {3:.1f}us".format(self, prediction, peer_ts, prediction_error*1e6))
 
             if abs(prediction_error) > self.outlier_threshold and abs(prediction_error) > self.error * 5:
+                logging.info("{0}: outlier: error={1:.1f}us".format(self, prediction_error*1e6))
                 self.outliers += 1
                 if self.outliers < 5:
                     # don't accept this one
@@ -117,7 +121,6 @@ class ClockPairing(object):
 
         # update clock offset based on the actual clock values
         self._update_offset(base_ts, peer_ts, prediction_error)
-        self.outliers = max(0, self.outliers - 2)
 
         now = time.monotonic()
         self.expiry = now + 120.0
@@ -129,6 +132,7 @@ class ClockPairing(object):
             i += 1
 
         if i > 0:
+            logging.info("{0}: prune {1} entries".format(self, i))
             del self.ts_base[0:i]
             del self.ts_peer[0:i]
             self.var_sum -= sum(self.var[0:i])
@@ -142,11 +146,13 @@ class ClockPairing(object):
         new_drift = (peer_interval - adjusted_base_interval) / adjusted_base_interval
 
         if abs(new_drift) > self.drift_max:
+            logging.info("{0}: drift {1} larger than max {2}".format(self, new_drift, self.drift_max))
             # Bad data, ignore entirely
             return False
 
         if self.drift is None:
             # First sample, just trust it outright
+            logging.info("{0}: first sample: drift {1}".format(self, new_drift))
             self.raw_drift = self.drift = new_drift
             self.i_drift = -self.drift / (1.0 + self.drift)
             return True
@@ -154,12 +160,15 @@ class ClockPairing(object):
         drift_error = new_drift - self.raw_drift
         if abs(drift_error) > self.drift_max_delta:
             # Too far away from the value we expect, discard
+            logging.info("{0}: drift outlier {1} vs current value {2}".format(self, new_drift, self.raw_drift))
             return False
 
         # move towards the new value
         self.raw_drift += drift_error * self.KP
-        self.drift = self.raw_drift + self.KI * self.cumulative_error
+        self.drift = self.raw_drift - self.KI * self.cumulative_error
         self.i_drift = -self.drift / (1.0 + self.drift)
+        logging.info("{0}: drift update: raw={1:.1f}ppm ce={2:.1f}us drift={3:.1f}ppm idrift={4:.1f}ppm".format(
+            self, self.raw_drift*1e6, self.cumulative_error*1e6, self.drift*1e6, self.i_drift*1e6))
         return True
 
     def _update_offset(self, base_ts, peer_ts, prediction_error):
@@ -177,6 +186,7 @@ class ClockPairing(object):
             # again.
             if (((i < self.n and self.ts_peer[i] < peer_ts) or
                  (i > 0 and self.ts_peer[i-1] > peer_ts))):
+                logging.info("{0}: monotonicity broken, reset".format(self))
                 self.ts_base = []
                 self.ts_peer = []
                 self.var = []
@@ -192,7 +202,15 @@ class ClockPairing(object):
         p_var = prediction_error ** 2
         self.var.insert(i, p_var)
         self.var_sum += p_var
-        self.cumulative_error += prediction_error
+
+        # if we are accepting an outlier, do not include it in our integral term
+        if not self.outliers:
+            self.cumulative_error += prediction_error
+
+        logging.info("{0}: sync point: {1} == {2}  err={3:.1f}us stddev={4:.1f}us".format(self, base_ts, peer_ts, prediction_error*1e6, self.error*1e6))
+        with closing(open('clocks.csv', 'a')) as f:
+            print('{t:.3f},{drift:.2f},{err:.2f},{cerr:.2f},{stddev:.2f},{o}'.format(t=time.time(), drift=self.drift*1e6, err=prediction_error*1e6, cerr=self.cumulative_error*1e6, stddev=self.error*1e6, o=self.outliers), file=f)
+        self.outliers = max(0, self.outliers - 2)
 
     def predict_peer(self, base_ts):
         if self.n == 0:
@@ -202,21 +220,21 @@ class ClockPairing(object):
         if i == 0:
             # extrapolate before first point
             elapsed = base_ts - self.ts_base[0]
-            return int(round((self.ts_peer[0] +
-                              elapsed * self.relative_freq +
-                              elapsed * self.relative_freq * self.drift)))
+            return (self.ts_peer[0] +
+                    elapsed * self.relative_freq +
+                    elapsed * self.relative_freq * self.drift)
         elif i == self.n:
             # extrapolate after last point
             elapsed = base_ts - self.ts_base[-1]
-            return int(round((self.ts_peer[-1] +
-                              elapsed * self.relative_freq +
-                              elapsed * self.relative_freq * self.drift)))
+            return (self.ts_peer[-1] +
+                    elapsed * self.relative_freq +
+                    elapsed * self.relative_freq * self.drift)
         else:
             # interpolate between two points
-            return int(round((self.ts_peer[i-1] +
-                              (self.ts_peer[i] - self.ts_peer[i-1]) *
-                              (base_ts - self.ts_base[i-1]) /
-                              (self.ts_base[i] - self.ts_base[i-1]))))
+            return (self.ts_peer[i-1] +
+                    (self.ts_peer[i] - self.ts_peer[i-1]) *
+                    (base_ts - self.ts_base[i-1]) /
+                    (self.ts_base[i] - self.ts_base[i-1]))
 
     def predict_base(self, peer_ts):
         if self.n == 0:
@@ -226,18 +244,18 @@ class ClockPairing(object):
         if i == 0:
             # extrapolate before first point
             elapsed = peer_ts - self.ts_peer[0]
-            return int(round((self.ts_base[0] +
-                              elapsed * self.i_relative_freq +
-                              elapsed * self.i_relative_freq * self.i_drift)))
+            return (self.ts_base[0] +
+                    elapsed * self.i_relative_freq +
+                    elapsed * self.i_relative_freq * self.i_drift)
         elif i == self.n:
             # extrapolate after last point
             elapsed = peer_ts - self.ts_peer[-1]
-            return int(round((elapsed +
-                              elapsed * self.i_relative_freq +
-                              elapsed * self.i_relative_freq * self.i_drift)))
+            return (elapsed +
+                    elapsed * self.i_relative_freq +
+                    elapsed * self.i_relative_freq * self.i_drift)
         else:
             # interpolate between two points
-            return int(round((self.ts_base[i-1] +
-                              (self.ts_base[i] - self.ts_base[i-1]) *
-                              (peer_ts - self.ts_peer[i-1]) /
-                              (self.ts_peer[i] - self.ts_peer[i-1]))))
+            return (self.ts_base[i-1] +
+                    (self.ts_base[i] - self.ts_base[i-1]) *
+                    (peer_ts - self.ts_peer[i-1]) /
+                    (self.ts_peer[i] - self.ts_peer[i-1]))

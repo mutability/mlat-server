@@ -26,7 +26,7 @@ def main(port):
     loop.close()
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG,
+    logging.basicConfig(level=logging.INFO,
                         style='{',
                         format='{asctime}.{msecs:03.0f}  {levelname:8s} {name:20s} {message}',
                         datefmt='%Y%m%d %H:%M:%S')
