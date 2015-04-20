@@ -324,7 +324,7 @@ class JsonClient(connection.Connection):
         logging.info("%s <<Z %s", self.receiver.user, line)
         self._writebuf.append(line + '\n')
         if self._pending_flush is None:
-            self._pending_flush = asyncio.get_event_loop().call_later(0.5, self._flush_zlib)
+            self._pending_flush = asyncio.get_event_loop().call_soon(self._flush_zlib)
 
     def write_discard(self, **kwargs):
         line = json.dumps(kwargs)
@@ -482,7 +482,7 @@ class JsonClient(connection.Connection):
 
         self._wanted_traffic.add(icao)
         if self._pending_traffic_update is None:
-            self._pending_traffic_update = asyncio.get_event_loop().call_later(0.5, self.send_traffic_updates)
+            self._pending_traffic_update = asyncio.get_event_loop().call_soon(self.send_traffic_updates)
 
     def suppress_traffic(self, receiver, icao):
         assert receiver is self.receiver
@@ -492,7 +492,7 @@ class JsonClient(connection.Connection):
 
         self._wanted_traffic.remove(icao)
         if self._pending_traffic_update is None:
-            self._pending_traffic_update = asyncio.get_event_loop().call_later(0.5, self.send_traffic_updates)
+            self._pending_traffic_update = asyncio.get_event_loop().call_soon(self.send_traffic_updates)
 
     def send_traffic_updates(self):
         self._pending_traffic_update = None
