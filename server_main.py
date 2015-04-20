@@ -45,4 +45,4 @@ if __name__ == '__main__':
                         style='{',
                         format='{asctime}.{msecs:03.0f}  {levelname:8s} {name:20s} {message}',
                         datefmt='%Y%m%d %H:%M:%S')
-    main(12345, 12346)
+    main(40147, None)
