@@ -304,7 +304,8 @@ class JsonClient(connection.Connection):
                     "selective_traffic": True,
                     "heartbeat": True,
                     "return_results": self.use_return_results,
-                    "rate_reports": True}
+                    "rate_reports": True,
+                    "motd": "In-development v2 server. Expect odd behaviour."}
 
         if self.use_udp:
             self._udp_key = self.udp_protocol.add_client(sync_handler=self.process_sync,
