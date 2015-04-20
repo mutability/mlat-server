@@ -1,7 +1,7 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
 
-__all__ = ('ESType', 'decode')
+__all__ = ('ESType', 'decode', 'decode_aa')
 
 from enum import Enum
 
@@ -281,3 +281,7 @@ def decode(frombuf):
         return message_types[df](frombuf)
     except KeyError:
         return None
+
+
+def decode_aa(frombuf):
+    return (frombuf[1] << 16) | (frombuf[2] << 8) | frombuf[3]

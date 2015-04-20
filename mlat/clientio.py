@@ -6,11 +6,34 @@ import logging
 import json
 import struct
 import time
+import random
+import socket
+import functools
 
 from . import util
 from . import geodesy
 from . import connection
 from .constants import MTOF
+
+
+@asyncio.coroutine
+def start_listeners(tcp_port, udp_port, coordinator, loop=None):
+    if loop is None:
+        loop = asyncio.get_event_loop()
+
+    if udp_port is not None:
+        dgram_coro = loop.create_datagram_endpoint(protocol_factory=PackedMlatServerProtocol,
+                                                   family=socket.AF_INET,
+                                                   local_addr=(None, udp_port))
+        udp_transport, udp_protocol = (yield from dgram_coro)
+
+    tcp_server = (yield from asyncio.start_server(functools.partial(start_json_client,
+                                                                    udp_protocol=udp_protocol,
+                                                                    coordinator=coordinator),
+                                                  family=socket.AF_INET,
+                                                  port=tcp_port))
+
+    return (tcp_server, udp_transport)
 
 
 def start_json_client(r, w, **kwargs):
@@ -20,14 +43,78 @@ def start_json_client(r, w, **kwargs):
     client.start()
 
 
+class PackedMlatServerProtocol(asyncio.DatagramProtocol):
+    TYPE_SYNC = 1
+    TYPE_MLAT_SHORT = 2
+    TYPE_MLAT_LONG = 3
+
+    STRUCT_HEADER = struct.Struct(">IQ")
+    STRUCT_SYNC = struct.Struct(">ii14s14s")
+    STRUCT_MLAT_SHORT = struct.Struct(">i7s")
+    STRUCT_MLAT_LONG = struct.Struct(">i14s")
+
+    def __init__(self):
+        self.clients = {}
+        self._r = random.SystemRandom()
+        self.listen_address = None
+
+    def add_client(self, sync_handler, mlat_handler):
+        newkey = self._r.getrandbits(32)
+        while newkey in self.clients:
+            newkey = self._r.getrandbits(32)
+        self.clients[newkey] = (sync_handler, mlat_handler)
+        return newkey
+
+    def remove_client(self, key):
+        self.clients.pop(key, None)
+
+    def connection_made(self, transport):
+        self.listen_address = transport.get_extra_info('sockname')
+
+    def datagram_received(self, data, addr):
+        try:
+            key, base = self.STRUCT_HEADER.unpack_from(data, 0)
+            sync_handler, mlat_handler = self.clients[key]  # KeyError on bad client key
+
+            i = self.STRUCT_HEADER.size
+            while i < len(data):
+                typebyte = data[i]
+                i += 1
+
+                if typebyte == self.TYPE_SYNC:
+                    et, ot, em, om = self.STRUCT_SYNC.unpack_from(data, i)
+                    i += self.STRUCT_SYNC.size
+                    sync_handler(base + et, base + ot, em, om)
+
+                elif typebyte == self.TYPE_MLAT_SHORT:
+                    t, m = self.STRUCT_MLAT_SHORT.unpack_from(data, i)
+                    i += self.STRUCT_MLAT_SHORT.size
+                    mlat_handler(base + t, m)
+
+                elif typebyte == self.TYPE_MLAT_LONG:
+                    t, m = self.STRUCT_MLAT_LONG.unpack_from(data, i)
+                    i += self.STRUCT_MLAT_LONG.size
+                    mlat_handler(base + t, m)
+
+                else:
+                    # bad data
+                    break
+        except struct.error:
+            pass
+        except KeyError:
+            pass
+
+
 class JsonClient(connection.Connection):
     write_heartbeat_interval = 30.0
     read_heartbeat_interval = 45.0
 
-    def __init__(self, reader, writer, *, coordinator):
+    def __init__(self, reader, writer, *, coordinator, udp_protocol):
         self.r = reader
         self.w = writer
         self.coordinator = coordinator
+        self.udp_protocol = udp_protocol
+        self._udp_key = None
         self.transport = writer.transport
         self.compression_methods = (
             ('zlib2', self.handle_zlib_messages, self.write_zlib),
@@ -112,6 +199,9 @@ class JsonClient(connection.Connection):
 
             self.send = self.write_discard  # suppress all output from hereon in
 
+            if self._udp_key is not None:
+                self.udp_protocol.remove_client(self._udp_key)
+
             # tell the coordinator, this might cause traffic to be suppressed
             # from other receivers
             if self.receiver is not None:
@@ -186,6 +276,8 @@ class JsonClient(connection.Connection):
                 else:
                     self.report_mlat_position = self.report_mlat_position_discard
 
+                self.use_udp = (self.udp_protocol is not None and bool(hs.get('udp_transport', False)))
+
                 self.receiver = self.coordinator.new_receiver(connection=self,
                                                               user=user,
                                                               auth=hs.get('auth'),
@@ -204,12 +296,20 @@ class JsonClient(connection.Connection):
             return False
 
         # todo: MOTD
-        self.write_raw(compress=self.compress,
-                       reconnect_in=util.fuzzy(15),
-                       selective_traffic=True,
-                       heartbeat=True,
-                       return_results=self.use_return_results)
+        response = {"compress": self.compress,
+                    "reconnect_in": util.fuzzy(15),
+                    "selective_traffic": True,
+                    "heartbeat": True,
+                    "return_results": self.use_return_results}
 
+        if self.use_udp:
+            self._udp_key = self.udp_protocol.add_client(sync_handler=self.process_sync,
+                                                         mlat_handler=self.process_mlat)
+            response['udp_transport'] = (None,   # use same host as TCP
+                                         self.udp_protocol.listen_address[1],
+                                         self._udp_key)
+
+        self.write_raw(**response)
         return True
 
     def write_raw(self, **kwargs):
@@ -314,9 +414,14 @@ class JsonClient(connection.Connection):
         msg = json.loads(line)
 
         if 'sync' in msg:
-            self.process_sync_message(msg['sync'])
+            sync = msg['sync']
+            self.process_sync(float(sync['et']),
+                              float(sync['ot']),
+                              bytes.fromhex(sync['em']),
+                              bytes.fromhex(sync['om']))
         elif 'mlat' in msg:
-            self.process_mlat_message(msg['mlat'])
+            mlat = msg['mlat']
+            self.process_mlat(float(mlat['t']), bytes.fromhex(mlat['m']))
         elif 'seen' in msg:
             self.process_seen_message(msg['seen'])
         elif 'lost' in msg:
@@ -327,28 +432,24 @@ class JsonClient(connection.Connection):
             self.process_input_disconnect_message(msg['input_disconnect'])
         elif 'heartbeat' in msg:
             self.process_heartbeat_message(msg['heartbeat'])
+        elif 'rate_report' in msg:
+            self.process_rate_report_message(msg['rate_report'])
         else:
             logging.info('Received an unexpected message: %s', msg)
 
-    def process_sync_message(self, sync):
-        even_time = float(sync['et'])
-        odd_time = float(sync['ot'])
-        even_message = bytes.fromhex(sync['em'])
-        odd_message = bytes.fromhex(sync['om'])
+    def process_sync(self, et, ot, em, om):
+        self.coordinator.receiver_sync(self.receiver, et, ot, em, om)
 
-        self.coordinator.receiver_sync(self.receiver, even_time, odd_time, even_message, odd_message)
-
-    def process_mlat_message(self, mlat):
-        t = float(mlat['t'])
-        m = bytes.fromhex(mlat['m'])
-
+    def process_mlat(self, t, m):
         self.coordinator.receiver_mlat(self.receiver, t, m)
 
     def process_seen_message(self, seen):
-        self.coordinator.receiver_tracking_add(self.receiver, {int(icao, 16) for icao in seen})
+        seen = {int(icao, 16) for icao in seen}
+        self.coordinator.receiver_tracking_add(self.receiver, seen)
 
     def process_lost_message(self, lost):
-        self.coordinator.receiver_tracking_remove(self.receiver, {int(icao, 16) for icao in lost})
+        lost = {int(icao, 16) for icao in lost}
+        self.coordinator.receiver_tracking_remove(self.receiver, lost)
 
     def process_input_connected_message(self, m):
         self.coordinator.receiver_clock_reset(self.receiver)
@@ -359,26 +460,29 @@ class JsonClient(connection.Connection):
     def process_heartbeat_message(self, m):
         pass
 
+    def process_rate_report_message(self, m):
+        self.coordinator.receiver_rate_report(self.receiver, {int(k, 16): v for k, v in m.items()})
+
     # Connection interface
 
     # For traffic management, we update the local set and schedule a task to write it out in a little while.
-    def request_traffic(self, receiver, icao_set):
+    def request_traffic(self, receiver, icao):
         assert receiver is self.receiver
 
-        if not icao_set:
+        if icao in self._wanted_traffic:
             return
 
-        self._wanted_traffic.update(icao_set)
+        self._wanted_traffic.add(icao)
         if self._pending_traffic_update is None:
             self._pending_traffic_update = asyncio.get_event_loop().call_later(0.5, self.send_traffic_updates)
 
-    def suppress_traffic(self, receiver, icao_set):
+    def suppress_traffic(self, receiver, icao):
         assert receiver is self.receiver
 
-        if not icao_set:
+        if icao not in self._wanted_traffic:
             return
 
-        self._wanted_traffic.difference_update(icao_set)
+        self._wanted_traffic.remove(icao)
         if self._pending_traffic_update is None:
             self._pending_traffic_update = asyncio.get_event_loop().call_later(0.5, self.send_traffic_updates)
 

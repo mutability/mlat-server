@@ -1,6 +1,6 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
-__all__ = ['decode']
+__all__ = ['message', 'cpr']
 
-
-from .message import decode
+from . import message
+from . import cpr

@@ -1,7 +1,6 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
 import math
-import scipy.spatial.distance
 from .constants import DTOR, RTOD
 
 # WGS84 ellipsoid Earth parameters
@@ -73,4 +72,8 @@ def greatcircle(p0, p1):
         math.sin(lat0) * math.sin(lat1) +
         math.cos(lat0) * math.cos(lat1) * math.cos(abs(lon0 - lon1)))
 
-ecef_distance = scipy.spatial.distance.euclidean
+
+# direct implementation here turns out to be _much_ faster (10-20x) compared to
+# scipy.spatial.distance.euclidean or numpy-based approaches
+def ecef_distance(p0, p1):
+    return math.sqrt((p0[0] - p1[0])**2 + (p0[1] - p1[1])**2 + (p0[2] - p1[2])**2)

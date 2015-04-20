@@ -1,8 +1,12 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
-from . import tracker
-from . import clocksync
-from . import clocktrack
+import asyncio
+import json
+from contextlib import closing
+
+from mlat import tracker
+from mlat import clocksync
+from mlat import clocktrack
 
 
 class ReceiverHandle(object):
@@ -15,6 +19,11 @@ class ReceiverHandle(object):
         self.clock = clock
         self.position = position
         self.dead = False
+
+        self.last_rate_report = None
+        self.tracking = set()
+        self.sync_interest = set()
+        self.mlat_interest = set()
 
     def __lt__(self, other):
         return id(self) < id(other)
@@ -46,6 +55,21 @@ failure.
         self.authenticator = authenticator
         self.tracker = tracker.Tracker()
         self.clock_tracker = clocktrack.ClockTracker()
+        asyncio.get_event_loop().call_later(30.0, self._write_state)
+
+    def _write_state(self):
+        asyncio.get_event_loop().call_later(30.0, self._write_state)
+
+        state = {}
+
+        for r in self.receivers.values():
+            state[r.user] = {
+                'sync_count': r.sync_count,
+            }
+
+        self.clock_tracker.dump_state(state)
+        with closing(open('state.json', 'w')) as f:
+            json.dump(state, fp=f)
 
     def new_receiver(self, connection, user, auth, position, clock_type):
         """Assigns a new receiver ID for a given user.
@@ -88,11 +112,22 @@ failure.
     def receiver_tracking_add(self, receiver, icao_set):
         """Update a receiver's tracking set by adding some aircraft."""
         self.tracker.add(receiver, icao_set)
+        if receiver.last_rate_report is None:
+            # not receiving rate reports for this receiver
+            self.tracker.update_interest(receiver)
 
     def receiver_tracking_remove(self, receiver, icao_set):
         """Update a receiver's tracking set by removing some aircraft."""
         self.tracker.remove(receiver, icao_set)
+        if receiver.last_rate_report is None:
+            # not receiving rate reports for this receiver
+            self.tracker.update_interest(receiver)
 
     def receiver_clock_reset(self, receiver):
         """Reset current clock synchronization for a receiver."""
         pass
+
+    def receiver_rate_report(self, receiver, report):
+        """Process an ADS-B position rate report for a receiver."""
+        receiver.last_rate_report = report
+        self.tracker.update_interest(receiver)

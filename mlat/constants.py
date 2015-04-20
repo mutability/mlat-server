@@ -14,9 +14,3 @@ RTOD = 180.0 / math.pi
 FTOM = 0.3038
 # metres to feet
 MTOF = 1.0/FTOM
-
-# absolute maximum receiver range, metres
-MAX_RANGE = 500e3
-
-# absolute maximum altitude, metres
-MAX_ALT = 50000 * FTOM

@@ -44,9 +44,11 @@ class ClockPairing(object):
     KP = 0.05
     KI = 0.01
 
-    def __init__(self, base_clock, peer_clock):
-        self.base_clock = base_clock
-        self.peer_clock = peer_clock
+    def __init__(self, base, peer):
+        self.base = base
+        self.peer = peer
+        self.base_clock = base.clock
+        self.peer_clock = peer.clock
         self.raw_drift = None
         self.drift = None
         self.i_drift = None
@@ -58,15 +60,19 @@ class ClockPairing(object):
         self.outliers = 0
         self.cumulative_error = 0.0
 
-        self.relative_freq = peer_clock.freq / base_clock.freq
-        self.i_relative_freq = base_clock.freq / peer_clock.freq
-        self.drift_max = base_clock.max_freq_error + peer_clock.max_freq_error
+        self.relative_freq = peer.clock.freq / base.clock.freq
+        self.i_relative_freq = base.clock.freq / peer.clock.freq
+        self.drift_max = base.clock.max_freq_error + peer.clock.max_freq_error
         self.drift_max_delta = self.drift_max / 10.0
-        self.outlier_threshold = 5 * (peer_clock.jitter + base_clock.jitter)   # 5 sigma
+        self.outlier_threshold = 5 * (peer.clock.jitter + base.clock.jitter)   # 5 sigma
 
         now = time.monotonic()
         self.expiry = now + 120.0
         self.validity = now + 30.0
+
+    def is_new(self, base_ts):
+        """Returns True if the given base timestamp is in the extrapolation region."""
+        return self.n == 0 or self.ts_base[-1] < base_ts
 
     @property
     def variance(self):
@@ -94,6 +100,8 @@ class ClockPairing(object):
         peer_ts: the timestamp of the same point in time measured by the peer clock
         base_interval: the duration of a recent interval measured by the base clock
         peer_interval: the duration of the same interval measured by the peer clock
+
+        Returns True if the update was used, False if it was an outlier.
         """
 
         # clean old data
@@ -102,22 +110,21 @@ class ClockPairing(object):
         # predict from existing data, compare to actual value
         if self.n > 0:
             prediction = self.predict_peer(base_ts)
-            prediction_error = (prediction - peer_ts) / self.peer_clock.freq            
-            logging.info("{0}: predicted: {1} got: {2} error: {3:.1f}us".format(self, prediction, peer_ts, prediction_error*1e6))
+            prediction_error = (prediction - peer_ts) / self.peer_clock.freq
 
             if abs(prediction_error) > self.outlier_threshold and abs(prediction_error) > self.error * 5:
                 logging.info("{0}: outlier: error={1:.1f}us".format(self, prediction_error*1e6))
                 self.outliers += 1
                 if self.outliers < 5:
                     # don't accept this one
-                    return
+                    return False
         else:
             prediction_error = 0  # first sync point, no error
 
         # update clock drift based on interval ratio
         # this might reject the update
         if not self._update_drift(base_interval, peer_interval):
-            return
+            return False
 
         # update clock offset based on the actual clock values
         self._update_offset(base_ts, peer_ts, prediction_error)
@@ -125,6 +132,7 @@ class ClockPairing(object):
         now = time.monotonic()
         self.expiry = now + 120.0
         self.validity = now + 30.0
+        return True
 
     def _prune_old_data(self, latest_base_ts):
         i = 0
@@ -132,7 +140,6 @@ class ClockPairing(object):
             i += 1
 
         if i > 0:
-            logging.info("{0}: prune {1} entries".format(self, i))
             del self.ts_base[0:i]
             del self.ts_peer[0:i]
             self.var_sum -= sum(self.var[0:i])
@@ -146,13 +153,11 @@ class ClockPairing(object):
         new_drift = (peer_interval - adjusted_base_interval) / adjusted_base_interval
 
         if abs(new_drift) > self.drift_max:
-            logging.info("{0}: drift {1} larger than max {2}".format(self, new_drift, self.drift_max))
             # Bad data, ignore entirely
             return False
 
         if self.drift is None:
             # First sample, just trust it outright
-            logging.info("{0}: first sample: drift {1}".format(self, new_drift))
             self.raw_drift = self.drift = new_drift
             self.i_drift = -self.drift / (1.0 + self.drift)
             return True
@@ -160,15 +165,12 @@ class ClockPairing(object):
         drift_error = new_drift - self.raw_drift
         if abs(drift_error) > self.drift_max_delta:
             # Too far away from the value we expect, discard
-            logging.info("{0}: drift outlier {1} vs current value {2}".format(self, new_drift, self.raw_drift))
             return False
 
         # move towards the new value
         self.raw_drift += drift_error * self.KP
         self.drift = self.raw_drift - self.KI * self.cumulative_error
         self.i_drift = -self.drift / (1.0 + self.drift)
-        logging.info("{0}: drift update: raw={1:.1f}ppm ce={2:.1f}us drift={3:.1f}ppm idrift={4:.1f}ppm".format(
-            self, self.raw_drift*1e6, self.cumulative_error*1e6, self.drift*1e6, self.i_drift*1e6))
         return True
 
     def _update_offset(self, base_ts, peer_ts, prediction_error):
@@ -207,9 +209,19 @@ class ClockPairing(object):
         if not self.outliers:
             self.cumulative_error += prediction_error
 
-        logging.info("{0}: sync point: {1} == {2}  err={3:.1f}us stddev={4:.1f}us".format(self, base_ts, peer_ts, prediction_error*1e6, self.error*1e6))
         with closing(open('clocks.csv', 'a')) as f:
-            print('{t:.3f},{drift:.2f},{err:.2f},{cerr:.2f},{stddev:.2f},{o}'.format(t=time.time(), drift=self.drift*1e6, err=prediction_error*1e6, cerr=self.cumulative_error*1e6, stddev=self.error*1e6, o=self.outliers), file=f)
+            line = '{t:.3f},{base},{peer},{drift:.2f},{rdrift:.2f},{err:.2f},{cerr:.2f},{stddev:.2f},{o}'.format(
+                t=time.time(),
+                base=self.base.user,
+                peer=self.peer.user,
+                drift=self.drift*1e6,
+                rdrift=self.raw_drift*1e6,
+                err=prediction_error*1e6,
+                cerr=self.cumulative_error*1e6,
+                stddev=self.error*1e6,
+                o=self.outliers)
+            print(line, file=f)
+
         self.outliers = max(0, self.outliers - 2)
 
     def predict_peer(self, base_ts):
@@ -259,3 +271,6 @@ class ClockPairing(object):
                     (self.ts_base[i] - self.ts_base[i-1]) *
                     (peer_ts - self.ts_peer[i-1]) /
                     (self.ts_peer[i] - self.ts_peer[i-1]))
+
+    def __str__(self):
+        return self.base.user + ':' + self.peer.user

@@ -12,21 +12,21 @@ class Connection(object):
     this class as long as they provide methods with equivalent signatures.
     """
 
-    def request_traffic(self, receiver, icao_set):
+    def request_traffic(self, receiver, icao):
         """Request that a receiver starts sending traffic for the given
-        set of aircraft.
+        aircraft.
 
         receiver: the handle of the concerned receiver
-        icao_set: a set of ICAO addresses (as ints) to start sending
+        icao: an ICAO addresses (as int) to start sending
         """
         raise NotImplementedError
 
-    def suppress_traffic(self, receiver, icao_set):
+    def suppress_traffic(self, receiver, icao):
         """Request that a receiver stops sending traffic for the given
-        set of aircraft.
+        aircraft.
 
         receiver: the handle of the concerned receiver
-        icao_set: a set of ICAO addresses (as ints) to stop sending
+        icao: an ICAO addresses (as int) to stop sending
         """
         raise NotImplementedError
 
