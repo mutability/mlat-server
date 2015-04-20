@@ -20,6 +20,7 @@ class ReceiverHandle(object):
         self.position = position
         self.dead = False
 
+        self.sync_count = 0
         self.last_rate_report = None
         self.tracking = set()
         self.sync_interest = set()
@@ -64,7 +65,10 @@ failure.
 
         for r in self.receivers.values():
             state[r.user] = {
-                'sync_count': r.sync_count,
+                'traffic': ['{0:06X}'.format(x) for x in r.connection._requested_traffic],
+                'tracking': ['{0:06X}'.format(x.icao) for x in r.tracking],
+                'sync_interest': ['{0:06X}'.format(x.icao) for x in r.sync_interest],
+                'mlat_interest': ['{0:06X}'.format(x.icao) for x in r.mlat_interest],
             }
 
         self.clock_tracker.dump_state(state)

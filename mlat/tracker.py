@@ -1,5 +1,7 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
+import logging
+
 
 class TrackedAircraft(object):
     """A single tracked aircraft."""
@@ -25,7 +27,10 @@ class TrackedAircraft(object):
     @property
     def interesting(self):
         """Is this aircraft interesting, i.e. should we forward traffic for it?"""
-        return self.sync_interest or len(self.mlat_interest) >= 3
+        return bool(self.sync_interest or len(self.mlat_interest) >= 3)
+
+    def __lt__(self, other):
+        return self.icao < other.icao
 
 
 class Tracker(object):
@@ -45,23 +50,19 @@ class Tracker(object):
             receiver.tracking.add(ac)
 
     def remove(self, receiver, icao_set):
-        new_sync_interest = receiver.sync_interest.copy()
-        new_mlat_interest = receiver.mlat_interest.copy()
-
         for icao in icao_set:
-            ac = self.aircraft.get(icao)
+            ac = self.aircraft[icao]
             ac.tracking.remove(receiver)
             receiver.tracking.remove(ac)
-            new_sync_interest.discard(ac)
-            new_mlat_interest.discard(ac)
-
-        self._update_interest_sets(receiver, new_sync_interest, new_mlat_interest)
 
     def remove_all(self, receiver):
         for icao in receiver.tracking:
-            self.aircraft.get(icao).tracking.remove(receiver)
-        receiver.tracking.clear()
+            ac = self.aircraft.get(icao)
+            if ac:
+                ac.tracking.discard(receiver)
+            receiver.connection.suppress_traffic(receiver, icao)
 
+        receiver.tracking.clear()
         self._update_interest_sets(receiver, set(), set())
 
     def update_interest(self, receiver):
@@ -69,25 +70,27 @@ class Tracker(object):
         latest tracking and rate report data."""
 
         if receiver.last_rate_report is None:
-            # Legacy client, no rate report, we cannot be selective:
-            # just say we're interested in everything it can see.
-            self._update_interest_sets(receiver, receiver.tracking.copy(), receiver.tracking.copy())
+            # Legacy client, no rate report, we cannot be very selective.
+            new_sync = {ac for ac in receiver.tracking if len(ac.tracking) > 1}
+            new_mlat = receiver.tracking.copy()
+
+            self._update_interest_sets(receiver, new_sync, new_mlat)
             return
 
         # Work out the aircraft that are transmitting ADS-B that this
         # receiver wants to use for synchronization.
         ac_to_ratepair_map = {}
         ratepair_list = []
-        for icao, rate in receiver.last_rate_report:
+        for icao, rate in receiver.last_rate_report.items():
             if rate < 0.20:
                 continue
 
-            ac = self.tracker.aircraft.get(icao)
+            ac = self.aircraft.get(icao)
             if not ac:
                 continue
 
             ac_to_ratepair_map[ac] = l = []  # list of (rateproduct, receiver, ac) tuples for this aircraft
-            for r1 in ac.tracked_by:
+            for r1 in ac.tracking:
                 if receiver is r1:
                     continue
 
@@ -97,7 +100,7 @@ class Tracker(object):
                 else:
                     rate1 = r1.last_rate_report.get(icao, 0.0)
 
-                rp = rate * rate1 / 2.0  # estimated rate of paired messages
+                rp = rate * rate1 / 4.0
                 if rp < 0.10:
                     continue
 
@@ -113,12 +116,12 @@ class Tracker(object):
             if ac in new_sync_set:
                 continue  # already added
 
-            if ntotal.get(r1, 0.0) < 2.0:
+            if ntotal.get(r1, 0.0) < 1.0:
                 # use this aircraft for sync
                 new_sync_set.add(ac)
                 # update rate-product totals for all receivers that see this aircraft
                 for rp2, r2, ac2 in ac_to_ratepair_map[ac]:
-                    ntotal[r2] += rp2
+                    ntotal[r2] = ntotal.get(r2, 0.0) + rp2
 
         # for multilateration we are interesting in
         # all aircraft that we are tracking but for
@@ -129,7 +132,11 @@ class Tracker(object):
             if ac.icao not in receiver.last_rate_report:
                 new_mlat_set.add(ac)
 
-        self._update_interest_set(receiver, new_sync_set, new_mlat_set)
+        logging.info("%s recalculated from rate reports", receiver.user)
+        logging.info("   sync: %s", ','.join(['{0:06X}'.format(x.icao) for x in new_sync_set]))
+        logging.info("   mlat: %s", ','.join(['{0:06X}'.format(x.icao) for x in new_mlat_set]))
+
+        self._update_interest_sets(receiver, new_sync_set, new_mlat_set)
 
     def _update_interest_sets(self, receiver, new_sync_interest, new_mlat_interest):
         """
@@ -159,7 +166,7 @@ class Tracker(object):
             if added.interesting and not was_interesting:
                 # Request traffic for this aircraft.
                 for other_receiver in added.tracking:
-                    other_receiver.connection.request_traffic(added.icao)
+                    other_receiver.connection.request_traffic(other_receiver, added.icao)
 
         for removed in receiver.sync_interest.difference(new_sync_interest):
             was_interesting = removed.interesting
@@ -167,7 +174,7 @@ class Tracker(object):
             if was_interesting and not removed.interesting:
                 # Suppress traffic for this aircraft.
                 for other_receiver in removed.tracking:
-                    other_receiver.connection.suppress_traffic(removed.icao)
+                    other_receiver.connection.suppress_traffic(other_receiver, removed.icao)
 
         receiver.sync_interest = new_sync_interest
 
@@ -177,11 +184,11 @@ class Tracker(object):
 
         for added in new_mlat_interest.difference(receiver.mlat_interest):
             was_interesting = added.interesting
-            added.sync_interest.add(receiver)
+            added.mlat_interest.add(receiver)
             if added.interesting and not was_interesting:
                 # Request traffic for this aircraft.
                 for other_receiver in added.tracking:
-                    other_receiver.connection.request_traffic(added.icao)
+                    other_receiver.connection.request_traffic(other_receiver, added.icao)
 
         for removed in receiver.mlat_interest.difference(new_mlat_interest):
             was_interesting = removed.interesting
@@ -189,6 +196,6 @@ class Tracker(object):
             if was_interesting and not removed.interesting:
                 # Suppress traffic for this aircraft.
                 for other_receiver in removed.tracking:
-                    other_receiver.connection.suppress_traffic(removed.icao)
+                    other_receiver.connection.suppress_traffic(other_receiver, removed.icao)
 
         receiver.mlat_interest = new_mlat_interest

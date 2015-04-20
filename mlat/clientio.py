@@ -156,6 +156,7 @@ class JsonClient(connection.Connection):
             if (time.monotonic() - self._last_message_time) > self.read_heartbeat_interval:
                 logging.warn("Client timeout, no recent messages seen, closing connection")
                 self._read_task.cancel()  # finally block will do cleanup
+                return
 
             # write a heartbeat message
             self.send(heartbeat=round(time.time(), 3))
@@ -300,7 +301,8 @@ class JsonClient(connection.Connection):
                     "reconnect_in": util.fuzzy(15),
                     "selective_traffic": True,
                     "heartbeat": True,
-                    "return_results": self.use_return_results}
+                    "return_results": self.use_return_results,
+                    "rate_reports": True}
 
         if self.use_udp:
             self._udp_key = self.udp_protocol.add_client(sync_handler=self.process_sync,
@@ -313,15 +315,20 @@ class JsonClient(connection.Connection):
         return True
 
     def write_raw(self, **kwargs):
-        line = json.dumps(kwargs) + '\n'
-        self.w.write(line.encode('ascii'))
+        line = json.dumps(kwargs)
+        logging.info("%s <<  %s", self.receiver.user, line)
+        self.w.write((line + '\n').encode('ascii'))
 
     def write_zlib(self, **kwargs):
-        self._writebuf.append(json.dumps(kwargs) + '\n')
+        line = json.dumps(kwargs)
+        logging.info("%s <<Z %s", self.receiver.user, line)
+        self._writebuf.append(line + '\n')
         if self._pending_flush is None:
             self._pending_flush = asyncio.get_event_loop().call_later(0.5, self._flush_zlib)
 
     def write_discard(self, **kwargs):
+        line = json.dumps(kwargs)
+        logging.info("%s <<D %s", self.receiver.user, line)
         pass
 
     def _flush_zlib(self):
@@ -410,6 +417,7 @@ class JsonClient(connection.Connection):
                 raise ValueError('Client sent a packet that was not newline terminated')
 
     def process_message(self, line):
+        logging.info("%s >> %s", self.receiver.user, line)
         self._last_message_time = time.monotonic()
         msg = json.loads(line)
 
