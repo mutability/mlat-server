@@ -21,6 +21,15 @@ class Connection(object):
         """
         raise NotImplementedError
 
+    def request_traffic_exact(self, receiver, icao_set):
+        """Request that a receiver starts sending traffic for exactly
+        the given set of aircraft only.
+
+        receiver: the handle of the concerned receiver
+        icao_set: a set of ICAO addresses (as ints) to send
+        """
+        raise NotImplementedError
+
     def suppress_traffic(self, receiver, icao):
         """Request that a receiver stops sending traffic for the given
         aircraft.

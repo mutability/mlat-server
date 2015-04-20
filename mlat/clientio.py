@@ -484,6 +484,13 @@ class JsonClient(connection.Connection):
         if self._pending_traffic_update is None:
             self._pending_traffic_update = asyncio.get_event_loop().call_soon(self.send_traffic_updates)
 
+    def request_traffic_exact(self, receiver, icao_set):
+        assert receiver is self.receiver
+
+        self._wanted_traffic = icao_set
+        if self._pending_traffic_update is None:
+            self._pending_traffic_update = asyncio.get_event_loop().call_soon(self.send_traffic_updates)
+
     def suppress_traffic(self, receiver, icao):
         assert receiver is self.receiver
 
