@@ -26,6 +26,8 @@ def start_listeners(tcp_port, udp_port, coordinator, loop=None):
                                                    family=socket.AF_INET,
                                                    local_addr=(None, udp_port))
         udp_transport, udp_protocol = (yield from dgram_coro)
+    else:
+        udp_transport = udp_protocol = None
 
     tcp_server = (yield from asyncio.start_server(functools.partial(start_json_client,
                                                                     udp_protocol=udp_protocol,
