@@ -87,7 +87,7 @@ failure.
 
         for r in self.receivers.values():
             state['receivers'][r.user] = {
-                'traffic': ['{0:06X}'.format(x) for x in r.requested],
+                'traffic': ['{0:06X}'.format(x.icao) for x in r.requested],
                 'tracking': ['{0:06X}'.format(x.icao) for x in r.tracking],
                 'sync_interest': ['{0:06X}'.format(x.icao) for x in r.sync_interest],
                 'mlat_interest': ['{0:06X}'.format(x.icao) for x in r.mlat_interest],
