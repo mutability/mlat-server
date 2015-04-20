@@ -60,7 +60,6 @@ class Tracker(object):
             ac = self.aircraft.get(icao)
             if ac:
                 ac.tracking.discard(receiver)
-            receiver.connection.suppress_traffic(receiver, icao)
 
         receiver.tracking.clear()
         receiver.update_interest_sets(set(), set())
