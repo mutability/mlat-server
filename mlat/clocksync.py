@@ -175,10 +175,8 @@ class ClockPairing(object):
 
     def _update_offset(self, address, base_ts, peer_ts, prediction_error):
         # insert this into self.ts_base / self.ts_peer / self.var in the right place
-        if self.n == 0:
-            i = 0
-        else:
-            i = bisect.bisect_left(self.ts_base, base_ts)
+        if self.n != 0:
+            assert base_ts > self.ts_base[-1]
 
             # ts_base and ts_peer define a function constructed by linearly
             # interpolating between each pair of values.
@@ -186,8 +184,8 @@ class ClockPairing(object):
             # This function must be monotonically increasing or one of our clocks
             # has effectively gone backwards. If this happens, give up and start
             # again.
-            if (((i < self.n and self.ts_peer[i] < peer_ts) or
-                 (i > 0 and self.ts_peer[i-1] > peer_ts))):
+
+            if peer_ts < self.ts_peer[-1]:
                 logging.info("{0}: monotonicity broken, reset".format(self))
                 self.ts_base = []
                 self.ts_peer = []
@@ -195,14 +193,10 @@ class ClockPairing(object):
                 self.var_sum = 0
                 self.cumulative_error = 0
                 self.n = 0
-                i = 0
-
-            if i < self.n:
-                logging.info("{0}: not at the end when adding a new offset".format(self))
 
         self.n += 1
-        self.ts_base.insert(i, base_ts)
-        self.ts_peer.insert(i, peer_ts)
+        self.ts_base.append(base_ts)
+        self.ts_peer.append(peer_ts)
 
         p_var = prediction_error ** 2
         self.var.insert(i, p_var)
