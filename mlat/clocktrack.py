@@ -289,7 +289,7 @@ class ClockTracker(object):
         i0 = (t0B - delay0B) - (t0A - delay0A)
         i1 = (t1B - delay1B) - (t1A - delay1A)
 
-        if not pairing.is_new(t0B):
+        if not pairing.is_new(t0B - delay0B):
             return True  # timestamp is in the past or duplicated, don't use this
 
         # do the update
