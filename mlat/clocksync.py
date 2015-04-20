@@ -93,9 +93,10 @@ class ClockPairing(object):
         """True if this pairing is usable for clock syncronization."""
         return bool(self.n >= 2 and self.variance < 2500 and self.outliers == 0 and self.validity > time.monotonic())
 
-    def update(self, base_ts, peer_ts, base_interval, peer_interval):
+    def update(self, address, base_ts, peer_ts, base_interval, peer_interval):
         """Update the relative drift and offset of this pairing given:
 
+        address: the ICAO address of the sync aircraft, for logging purposes
         base_ts: the timestamp of a recent point in time measured by the base clock
         peer_ts: the timestamp of the same point in time measured by the peer clock
         base_interval: the duration of a recent interval measured by the base clock
@@ -113,7 +114,6 @@ class ClockPairing(object):
             prediction_error = (prediction - peer_ts) / self.peer_clock.freq
 
             if abs(prediction_error) > self.outlier_threshold and abs(prediction_error) > self.error * 5:
-                logging.info("{0}: outlier: error={1:.1f}us".format(self, prediction_error*1e6))
                 self.outliers += 1
                 if self.outliers < 5:
                     # don't accept this one
@@ -142,9 +142,9 @@ class ClockPairing(object):
         if i > 0:
             del self.ts_base[0:i]
             del self.ts_peer[0:i]
-            self.var_sum -= sum(self.var[0:i])
             del self.var[0:i]
             self.n -= i
+            self.var_sum = sum(self.var)
 
     def _update_drift(self, base_interval, peer_interval):
         # try to reduce the effects of catastropic cancellation here:
@@ -197,6 +197,9 @@ class ClockPairing(object):
                 self.n = 0
                 i = 0
 
+            if i < self.n:
+                logging.info("{0}: not at the end when adding a new offset".format(self))
+
         self.n += 1
         self.ts_base.insert(i, base_ts)
         self.ts_peer.insert(i, peer_ts)
@@ -207,7 +210,7 @@ class ClockPairing(object):
 
         # if we are accepting an outlier, do not include it in our integral term
         if not self.outliers:
-            self.cumulative_error += prediction_error
+            self.cumulative_error = max(-50e-6, min(50e-6, prediction_error))  # limit to 50us
 
         with closing(open('clocks.csv', 'a')) as f:
             line = '{t:.3f},{base},{peer},{drift:.2f},{rdrift:.2f},{err:.2f},{cerr:.2f},{stddev:.2f},{o}'.format(
@@ -223,6 +226,9 @@ class ClockPairing(object):
             print(line, file=f)
 
         self.outliers = max(0, self.outliers - 2)
+
+        if abs(prediction_error) > self.outlier_threshold:
+            logging.info("{r}: {a:06X}: step by {e:.1f}us".format(r=self, a=address, e=prediction_error*1e6))
 
     def predict_peer(self, base_ts):
         if self.n == 0:

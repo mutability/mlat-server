@@ -3,6 +3,7 @@
 import asyncio
 import functools
 import time
+import logging
 
 import modes
 from mlat import geodesy
@@ -18,9 +19,10 @@ class SyncPoint(object):
     that pair.
     """
 
-    def __init__(self, posA, posB, interval):
+    def __init__(self, address, posA, posB, interval):
         """Construct a new sync point.
 
+        address: the ICAO address of the sync aircraft
         posA: the ECEF position of the earlier message
         posB: the ECEF position of the later message
         interval: the nominal interval (in seconds)
@@ -30,6 +32,7 @@ class SyncPoint(object):
           transmitted more than once.
         """
 
+        self.address = address
         self.posA = posA
         self.posB = posB
         self.interval = interval
@@ -155,6 +158,9 @@ class ClockTracker(object):
              not odd_message.F)):
             return
 
+        if even_message.address != odd_message.address:
+            return
+
         # quality checks
         if even_message.nuc < 6 or even_message.altitude is None:
             return
@@ -180,22 +186,25 @@ class ClockTracker(object):
                                       even_lon,
                                       even_message.altitude * FTOM))
         if geodesy.ecef_distance(even_ecef, receiver.position) > MAX_RANGE:
+            logging.info("{a:06X}: receiver range check (even) failed".format(a=even_message.address))
             return
 
         odd_ecef = geodesy.llh2ecef((odd_lat,
                                      odd_lon,
                                      odd_message.altitude * FTOM))
         if geodesy.ecef_distance(odd_ecef, receiver.position) > MAX_RANGE:
+            logging.info("{a:06X}: receiver range check (odd) failed".format(a=odd_message.address))
             return
 
         if geodesy.ecef_distance(even_ecef, odd_ecef) > MAX_INTERMESSAGE_RANGE:
+            logging.info("{a:06X}: intermessage range check failed".format(a=even_message.address))
             return
 
         # valid. Create a new sync point.
         if even_time < odd_time:
-            syncpoint = SyncPoint(even_ecef, odd_ecef, interval)
+            syncpoint = SyncPoint(even_message.address, even_ecef, odd_ecef, interval)
         else:
-            syncpoint = SyncPoint(odd_ecef, even_ecef, interval)
+            syncpoint = SyncPoint(even_message.address, odd_ecef, even_ecef, interval)
 
         syncpoint.receivers.append([receiver, tA, tB, False])
 
@@ -233,11 +242,11 @@ class ClockTracker(object):
 
             # order the clockpair so that the receiver that sorts lower is the base clock
             if r0 < r1:
-                if self._do_sync(syncpoint.posA, syncpoint.posB, r0, t0A, t0B, r1, t1A, t1B):
+                if self._do_sync(syncpoint.address, syncpoint.posA, syncpoint.posB, r0, t0A, t0B, r1, t1A, t1B):
                     # sync worked, note it for stats
                     r0l[3] = r1l[3] = True
             else:
-                if self._do_sync(syncpoint.posA, syncpoint.posB, r1, t1A, t1B, r0, t0A, t0B):
+                if self._do_sync(syncpoint.address, syncpoint.posA, syncpoint.posB, r1, t1A, t1B, r0, t0A, t0B):
                     # sync worked, note it for stats
                     r0l[3] = r1l[3] = True
 
@@ -263,28 +272,28 @@ class ClockTracker(object):
             if synced:
                 r.sync_count += 1
 
-    def _do_sync(self, posA, posB, r0, t0A, t0B, r1, t1A, t1B):
+    def _do_sync(self, address, posA, posB, r0, t0A, t0B, r1, t1A, t1B):
         # find or create clock pair
         k = (r0, r1)
         pairing = self.clock_pairs.get(k)
         if pairing is None:
             self.clock_pairs[k] = pairing = clocksync.ClockPairing(r0, r1)
 
+        # propagation delays, in clock units
+        delay0A = geodesy.ecef_distance(posA, r0.position) * r0.clock.freq / Cair
+        delay0B = geodesy.ecef_distance(posB, r0.position) * r0.clock.freq / Cair
+        delay1A = geodesy.ecef_distance(posA, r1.position) * r1.clock.freq / Cair
+        delay1B = geodesy.ecef_distance(posB, r1.position) * r1.clock.freq / Cair
+
+        # compute intervals, adjusted for transmitter motion
+        i0 = (t0B - delay0B) - (t0A - delay0A)
+        i1 = (t1B - delay1B) - (t1A - delay1A)
+
         if not pairing.is_new(t0B):
             return True  # timestamp is in the past or duplicated, don't use this
 
-        # propagation delays
-        delay0A = geodesy.ecef_distance(posA, r0.position) / Cair
-        delay0B = geodesy.ecef_distance(posB, r0.position) / Cair
-        delay1A = geodesy.ecef_distance(posA, r1.position) / Cair
-        delay1B = geodesy.ecef_distance(posB, r1.position) / Cair
-
-        # compute intervals, adjusted for transmitter motion
-        i0 = t0B - t0A + (delay0A - delay0B) * r0.clock.freq
-        i1 = t1B - t1A + (delay1A - delay1B) * r1.clock.freq
-
         # do the update
-        return pairing.update(t0B, t1B, i0, i1)
+        return pairing.update(address, t0B - delay0B, t1B - delay1B, i0, i1)
 
     def dump_state(self, state):
         for (r0, r1), pairing in self.clock_pairs.items():
