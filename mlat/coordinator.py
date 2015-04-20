@@ -82,17 +82,18 @@ failure.
     def _write_state(self):
         asyncio.get_event_loop().call_later(30.0, self._write_state)
 
-        state = {}
+        state = {'receivers': {},
+                 'aircraft': {}}
 
         for r in self.receivers.values():
-            state[r.user] = {
-                'traffic': ['{0:06X}'.format(x) for x in r.connection._requested_traffic],
+            state['receivers'][r.user] = {
+                'traffic': ['{0:06X}'.format(x) for x in r.requested],
                 'tracking': ['{0:06X}'.format(x.icao) for x in r.tracking],
                 'sync_interest': ['{0:06X}'.format(x.icao) for x in r.sync_interest],
                 'mlat_interest': ['{0:06X}'.format(x.icao) for x in r.mlat_interest],
+                'clocksync': self.clock_tracker.dump_receiver_state(r)
             }
 
-        self.clock_tracker.dump_state(state)
         with closing(open('state.json', 'w')) as f:
             json.dump(state, fp=f)
 

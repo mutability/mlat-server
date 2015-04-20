@@ -295,11 +295,11 @@ class ClockTracker(object):
         # do the update
         return pairing.update(address, t0B - delay0B, t1B - delay1B, i0, i1)
 
-    def dump_state(self, state):
+    def dump_receiver_state(self, receiver):
+        state = {}
         for (r0, r1), pairing in self.clock_pairs.items():
-            if pairing.valid:
-                r0state = state.setdefault(r0.user, {})
-                r0state.setdefault('syncpeers', {})[r1.user] = round(pairing.error * 1e6, 1)
-
-                r1state = state.setdefault(r1.user, {})
-                r1state.setdefault('syncpeers', {})[r0.user] = round(pairing.error * 1e6, 1)
+            if r0 is receiver:
+                state[r1.user] = [pairing.valid, pairing.n, round(pairing.error * 1e6, 1)]
+            elif r1 is receiver:
+                state[r0.user] = [pairing.valid, pairing.n, round(pairing.error * 1e6, 1)]
+        return state
