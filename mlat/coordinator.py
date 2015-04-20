@@ -25,6 +25,7 @@ class ReceiverHandle(object):
         self.tracking = set()
         self.sync_interest = set()
         self.mlat_interest = set()
+        self.requested = set()
 
     def update_interest_sets(self, new_sync, new_mlat):
         for added in new_sync.difference(self.sync_interest):
@@ -43,7 +44,8 @@ class ReceiverHandle(object):
         self.mlat_interest = new_mlat
 
     def refresh_traffic_requests(self):
-        self.connection.request_traffic_exact(self, {x.icao for x in self.tracking if x.interesting})
+        self.requested = {x for x in self.tracking if x.interesting}
+        self.connection.request_traffic(self, {x.icao for x in self.requested})
 
     def __lt__(self, other):
         return id(self) < id(other)
