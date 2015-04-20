@@ -477,30 +477,10 @@ class JsonClient(connection.Connection):
     # Connection interface
 
     # For traffic management, we update the local set and schedule a task to write it out in a little while.
-    def request_traffic(self, receiver, icao):
-        assert receiver is self.receiver
-
-        if icao in self._wanted_traffic:
-            return
-
-        self._wanted_traffic.add(icao)
-        if self._pending_traffic_update is None:
-            self._pending_traffic_update = asyncio.get_event_loop().call_soon(self.send_traffic_updates)
-
     def request_traffic_exact(self, receiver, icao_set):
         assert receiver is self.receiver
 
         self._wanted_traffic = icao_set
-        if self._pending_traffic_update is None:
-            self._pending_traffic_update = asyncio.get_event_loop().call_soon(self.send_traffic_updates)
-
-    def suppress_traffic(self, receiver, icao):
-        assert receiver is self.receiver
-
-        if icao not in self._wanted_traffic:
-            return
-
-        self._wanted_traffic.remove(icao)
         if self._pending_traffic_update is None:
             self._pending_traffic_update = asyncio.get_event_loop().call_soon(self.send_traffic_updates)
 
