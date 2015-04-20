@@ -26,6 +26,25 @@ class ReceiverHandle(object):
         self.sync_interest = set()
         self.mlat_interest = set()
 
+    def update_interest_sets(self, new_sync, new_mlat):
+        for added in new_sync.difference(self.sync_interest):
+            added.sync_interest.add(self)
+
+        for removed in self.sync_interest.difference(new_sync):
+            removed.sync_interest.remove(self)
+
+        for added in new_mlat.difference(self.mlat_interest):
+            added.mlat_interest.add(self)
+
+        for removed in self.mlat_interest.difference(new_mlat):
+            removed.mlat_interest.remove(self)
+
+        self.sync_interest = new_sync
+        self.mlat_interest = new_mlat
+
+    def refresh_traffic_requests(self):
+        self.connection.request_traffic_exact(self, {x.icao for x in self.tracking if x.interesting})
+
     def __lt__(self, other):
         return id(self) < id(other)
 

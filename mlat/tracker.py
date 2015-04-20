@@ -1,6 +1,6 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
-import logging
+import asyncio
 
 
 class TrackedAircraft(object):
@@ -63,7 +63,7 @@ class Tracker(object):
             receiver.connection.suppress_traffic(receiver, icao)
 
         receiver.tracking.clear()
-        self._update_interest_sets(receiver, set(), set())
+        receiver.update_interest_sets(set(), set())
 
     def update_interest(self, receiver):
         """Update the interest sets of one receiver based on the
@@ -73,8 +73,8 @@ class Tracker(object):
             # Legacy client, no rate report, we cannot be very selective.
             new_sync = {ac for ac in receiver.tracking if len(ac.tracking) > 1}
             new_mlat = receiver.tracking.copy()
-
-            self._update_interest_sets(receiver, new_sync, new_mlat)
+            receiver.update_interest_sets(new_sync, new_mlat)
+            asyncio.get_event_loop().call_later(15.0, receiver.refresh_traffic_requests)
             return
 
         # Work out the aircraft that are transmitting ADS-B that this
@@ -132,70 +132,5 @@ class Tracker(object):
             if ac.icao not in receiver.last_rate_report:
                 new_mlat_set.add(ac)
 
-        logging.info("%s recalculated from rate reports", receiver.user)
-        logging.info("   sync: %s", ','.join(['{0:06X}'.format(x.icao) for x in new_sync_set]))
-        logging.info("   mlat: %s", ','.join(['{0:06X}'.format(x.icao) for x in new_mlat_set]))
-
-        self._update_interest_sets(receiver, new_sync_set, new_mlat_set)
-
-    def _update_interest_sets(self, receiver, new_sync_interest, new_mlat_interest):
-        """
-        Update the interest sets for a receiver, and
-        the corresponding sets of the
-        aircraft based on the change to the interest
-        set.
-
-        If the change to an interest set of an
-        aircraft makes the set go from not-interesting
-        to interesting, or vice versa, do the appropriate
-        callbacks to all receivers tracking the aircraft
-        to request or suppress traffic for the aircraft.
-
-        receiver: the receiver to update
-        new_sync_set:  the new sync-interest set
-        new_mlat_set:  the new mlat-interest set
-        """
-
-        #
-        # Sync interest set
-        #
-
-        for added in new_sync_interest.difference(receiver.sync_interest):
-            was_interesting = added.interesting
-            added.sync_interest.add(receiver)
-            if added.interesting and not was_interesting:
-                # Request traffic for this aircraft.
-                for other_receiver in added.tracking:
-                    other_receiver.connection.request_traffic(other_receiver, added.icao)
-
-        for removed in receiver.sync_interest.difference(new_sync_interest):
-            was_interesting = removed.interesting
-            removed.sync_interest.remove(receiver)
-            if was_interesting and not removed.interesting:
-                # Suppress traffic for this aircraft.
-                for other_receiver in removed.tracking:
-                    other_receiver.connection.suppress_traffic(other_receiver, removed.icao)
-
-        receiver.sync_interest = new_sync_interest
-
-        #
-        # Mlat interest set
-        #
-
-        for added in new_mlat_interest.difference(receiver.mlat_interest):
-            was_interesting = added.interesting
-            added.mlat_interest.add(receiver)
-            if added.interesting and not was_interesting:
-                # Request traffic for this aircraft.
-                for other_receiver in added.tracking:
-                    other_receiver.connection.request_traffic(other_receiver, added.icao)
-
-        for removed in receiver.mlat_interest.difference(new_mlat_interest):
-            was_interesting = removed.interesting
-            removed.mlat_interest.remove(receiver)
-            if was_interesting and not removed.interesting:
-                # Suppress traffic for this aircraft.
-                for other_receiver in removed.tracking:
-                    other_receiver.connection.suppress_traffic(other_receiver, removed.icao)
-
-        receiver.mlat_interest = new_mlat_interest
+        receiver.update_interest_sets(new_sync_set, new_mlat_set)
+        asyncio.get_event_loop().call_later(15.0, receiver.refresh_traffic_requests)
