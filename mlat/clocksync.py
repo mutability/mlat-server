@@ -72,7 +72,7 @@ class ClockPairing(object):
 
     def is_new(self, base_ts):
         """Returns True if the given base timestamp is in the extrapolation region."""
-        return self.n == 0 or self.ts_base[-1] < base_ts
+        return bool(self.n == 0 or self.ts_base[-1] < base_ts)
 
     @property
     def variance(self):
@@ -91,7 +91,7 @@ class ClockPairing(object):
     @property
     def valid(self):
         """True if this pairing is usable for clock syncronization."""
-        return self.n >= 2 and self.variance < 2500 and self.outliers == 0 and self.validity > time.monotonic()
+        return bool(self.n >= 2 and self.variance < 2500 and self.outliers == 0 and self.validity > time.monotonic())
 
     def update(self, base_ts, peer_ts, base_interval, peer_interval):
         """Update the relative drift and offset of this pairing given:
