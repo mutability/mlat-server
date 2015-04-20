@@ -15,8 +15,6 @@ def stop_event_loop(msg, loop):
 
 def main(tcp_port, udp_port):
     loop = asyncio.get_event_loop()
-    loop.add_signal_handler(signal.SIGINT, stop_event_loop, "Halting on SIGINT", loop)
-    loop.add_signal_handler(signal.SIGTERM, stop_event_loop, "Halting on SIGTERM", loop)
 
     coordinator = mlat.coordinator.Coordinator()
 
@@ -27,6 +25,9 @@ def main(tcp_port, udp_port):
         print('Serving on {}'.format(tcp_server.sockets[0].getsockname()))
         if udp_transport:
             print('UDP listening on {}'.format(udp_transport.get_extra_info('sockname')))
+
+        loop.add_signal_handler(signal.SIGINT, stop_event_loop, "Halting on SIGINT", loop)
+        loop.add_signal_handler(signal.SIGTERM, stop_event_loop, "Halting on SIGTERM", loop)
 
         loop.run_forever()  # Well, until stop() is called anyway!
 
