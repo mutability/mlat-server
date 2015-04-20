@@ -319,19 +319,19 @@ class JsonClient(connection.Connection):
 
     def write_raw(self, **kwargs):
         line = json.dumps(kwargs)
-        logging.info("%s <<  %s", self.receiver.user, line)
+        #logging.info("%s <<  %s", self.receiver.user, line)
         self.w.write((line + '\n').encode('ascii'))
 
     def write_zlib(self, **kwargs):
         line = json.dumps(kwargs)
-        logging.info("%s <<Z %s", self.receiver.user, line)
+        #logging.info("%s <<Z %s", self.receiver.user, line)
         self._writebuf.append(line + '\n')
         if self._pending_flush is None:
             self._pending_flush = asyncio.get_event_loop().call_soon(self._flush_zlib)
 
     def write_discard(self, **kwargs):
         line = json.dumps(kwargs)
-        logging.info("%s <<D %s", self.receiver.user, line)
+        #logging.info("%s <<D %s", self.receiver.user, line)
         pass
 
     def _flush_zlib(self):
@@ -420,7 +420,7 @@ class JsonClient(connection.Connection):
                 raise ValueError('Client sent a packet that was not newline terminated')
 
     def process_message(self, line):
-        logging.info("%s >> %s", self.receiver.user, line)
+        #logging.info("%s >> %s", self.receiver.user, line)
         self._last_message_time = time.monotonic()
         msg = json.loads(line)
 
