@@ -330,7 +330,7 @@ class JsonClient(connection.Connection):
             self._pending_flush = asyncio.get_event_loop().call_soon(self._flush_zlib)
 
     def write_discard(self, **kwargs):
-        line = json.dumps(kwargs)
+        #line = json.dumps(kwargs)
         #logging.info("%s <<D %s", self.receiver.user, line)
         pass
 

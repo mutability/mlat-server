@@ -123,11 +123,11 @@ class ClockPairing(object):
 
         # update clock drift based on interval ratio
         # this might reject the update
-        if not self._update_drift(base_interval, peer_interval):
+        if not self._update_drift(address, base_interval, peer_interval):
             return False
 
         # update clock offset based on the actual clock values
-        self._update_offset(base_ts, peer_ts, prediction_error)
+        self._update_offset(address, base_ts, peer_ts, prediction_error)
 
         now = time.monotonic()
         self.expiry = now + 120.0
@@ -146,7 +146,7 @@ class ClockPairing(object):
             self.n -= i
             self.var_sum = sum(self.var)
 
-    def _update_drift(self, base_interval, peer_interval):
+    def _update_drift(self, address, base_interval, peer_interval):
         # try to reduce the effects of catastropic cancellation here:
         #new_drift = (peer_interval / base_interval) / self.relative_freq - 1.0
         adjusted_base_interval = base_interval * self.relative_freq
@@ -173,7 +173,7 @@ class ClockPairing(object):
         self.i_drift = -self.drift / (1.0 + self.drift)
         return True
 
-    def _update_offset(self, base_ts, peer_ts, prediction_error):
+    def _update_offset(self, address, base_ts, peer_ts, prediction_error):
         # insert this into self.ts_base / self.ts_peer / self.var in the right place
         if self.n == 0:
             i = 0
