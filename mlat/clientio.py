@@ -477,7 +477,7 @@ class JsonClient(connection.Connection):
     # Connection interface
 
     # For traffic management, we update the local set and schedule a task to write it out in a little while.
-    def request_traffic_exact(self, receiver, icao_set):
+    def request_traffic(self, receiver, icao_set):
         assert receiver is self.receiver
 
         self._wanted_traffic = icao_set
