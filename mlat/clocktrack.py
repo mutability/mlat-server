@@ -298,7 +298,7 @@ class ClockTracker(object):
     def dump_receiver_state(self, receiver):
         state = {}
         for (r0, r1), pairing in self.clock_pairs.items():
-            if not pairing.valid:
+            if pairing.n < 2:
                 continue
             if r0 is receiver:
                 state[r1.user] = [pairing.n, round(pairing.error * 1e6, 1)]
