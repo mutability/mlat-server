@@ -24,7 +24,7 @@ def main(tcp_port, udp_port, motd, bind_address):
                                                                          motd=motd,
                                                                          bind_address=bind_address))
 
-    loop.add_signal_handler(signal.SIGINT, stop_event_loop, "Halting on SIGINT", loop)
+    #loop.add_signal_handler(signal.SIGINT, stop_event_loop, "Halting on SIGINT", loop)
     loop.add_signal_handler(signal.SIGTERM, stop_event_loop, "Halting on SIGTERM", loop)
 
     try:
@@ -33,6 +33,8 @@ def main(tcp_port, udp_port, motd, bind_address):
     finally:
         server.close()
         loop.run_until_complete(server.wait_closed())
+        coordinator.close()
+        loop.run_until_complete(coordinator.wait_closed())
         loop.close()
 
 if __name__ == '__main__':

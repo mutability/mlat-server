@@ -110,7 +110,7 @@ def _convert_timestamps(g, timestamp_map, predictor_map, node, results, conversi
                                 [predictor] + conversion_chain, error + predictor.error)
 
 
-def normalize(self, clocktracker, timestamp_map):
+def normalize(clocktracker, timestamp_map):
     """
     Given a map of stations to (lists of) timestamps from those stations,
     return a list of maps with timestamps normalized to some arbitrary base timescale.
@@ -204,7 +204,7 @@ def normalize(self, clocktracker, timestamp_map):
         # times as the last step by dividing by the final clock's frequency
         results = {}
         conversion_chain = [_Predictor(lambda x: x/central.clock.freq, central.clock.jitter)]
-        _convert_timestamps(g, timestamp_map, predictor_map, central, results, conversion_chain, 0.0)
+        _convert_timestamps(g, timestamp_map, predictor_map, central, results, conversion_chain, central.clock.jitter)
 
         components.append(results)
 

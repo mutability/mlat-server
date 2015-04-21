@@ -1,6 +1,7 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
 import asyncio
+import time
 
 
 class TrackedAircraft(object):
@@ -23,6 +24,16 @@ class TrackedAircraft(object):
         # this aircraft is interesting if this set has at least three receivers.
         # invariant: r.mlat_interest.contains(a) iff a.mlat_interest.contains(r)
         self.mlat_interest = set()
+
+        # last reported altitude (for multilaterated aircraft)
+        self.altitude = None
+        # time of last altitude (time.monotonic())
+        self.last_altitude_time = None
+
+        # last computed position (for multilaterated aircraft), ECEF
+        self.position = None
+        # time of last position (time.monotonic())
+        self.last_position_time = None
 
     @property
     def interesting(self):
@@ -66,6 +77,31 @@ class Tracker(object):
 
         receiver.tracking.clear()
         receiver.update_interest_sets(set(), set())
+
+    def update_altitude(self, icao, altitude):
+        """Update the last known altitude of an aircraft.
+
+        Called by the multilateration tracker when it sees
+        more than one copy of a message that holds an altitude
+        (e.g. DF4 message)"""
+        ac = self.aircraft.get(icao)
+        if not ac:
+            return
+
+        ac.altitude = altitude
+        ac.last_altitude_time = time.monotonic()
+
+    def update_position(self, icao, position):
+        """Update the last known position of an aircraft.
+
+        Called by the multilateration tracker when it generates
+        a result."""
+        ac = self.aircraft.get(icao)
+        if not ac:
+            return
+
+        ac.position = position
+        ac.last_position_time = time.monotonic()
 
     def update_interest(self, receiver):
         """Update the interest sets of one receiver based on the

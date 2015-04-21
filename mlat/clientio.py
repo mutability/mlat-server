@@ -33,11 +33,10 @@ class JsonClientListener(object):
         for client in list(self.clients):  # take a copy, close will modify the list
             client.close()
 
-    @asyncio.coroutine
     def wait_closed(self):
         waitlist = [asyncio.async(client.wait_closed()) for client in self.clients]
         waitlist.append(self.tcp_server.wait_closed())
-        done, pending = yield from asyncio.wait(waitlist)
+        return asyncio.wait(waitlist)
 
 
 @asyncio.coroutine
@@ -503,8 +502,8 @@ class JsonClient(connection.Connection):
             self.process_lost_message(msg['lost'])
         elif 'input_connected' in msg:
             self.process_input_connected_message(msg['input_connected'])
-        elif 'input_disconnect' in msg:
-            self.process_input_disconnect_message(msg['input_disconnect'])
+        elif 'input_disconnected' in msg:
+            self.process_input_disconnected_message(msg['input_disconnected'])
         elif 'heartbeat' in msg:
             self.process_heartbeat_message(msg['heartbeat'])
         elif 'rate_report' in msg:

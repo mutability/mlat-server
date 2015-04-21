@@ -7,6 +7,8 @@ from contextlib import closing
 from mlat import tracker
 from mlat import clocksync
 from mlat import clocktrack
+from mlat import mlattrack
+from mlat import geodesy
 
 
 class ReceiverHandle(object):
@@ -26,6 +28,8 @@ class ReceiverHandle(object):
         self.sync_interest = set()
         self.mlat_interest = set()
         self.requested = set()
+
+        self.distance = {}
 
     def update_interest_sets(self, new_sync, new_mlat):
         for added in new_sync.difference(self.sync_interest):
@@ -77,25 +81,36 @@ failure.
         self.authenticator = authenticator
         self.tracker = tracker.Tracker()
         self.clock_tracker = clocktrack.ClockTracker()
-        asyncio.get_event_loop().call_later(30.0, self._write_state)
+        self.mlat_tracker = mlattrack.MlatTracker(tracker=self.tracker,
+                                                  clock_tracker=self.clock_tracker)
 
-    def _write_state(self):
-        asyncio.get_event_loop().call_later(30.0, self._write_state)
+        self._write_state_task = asyncio.async(self.write_state())
 
-        state = {'receivers': {},
-                 'aircraft': {}}
+    @asyncio.coroutine
+    def write_state(self):
+        while True:
+            yield from asyncio.sleep(30.0)
 
-        for r in self.receivers.values():
-            state['receivers'][r.user] = {
-                'traffic': ['{0:06X}'.format(x.icao) for x in r.requested],
-                'tracking': ['{0:06X}'.format(x.icao) for x in r.tracking],
-                'sync_interest': ['{0:06X}'.format(x.icao) for x in r.sync_interest],
-                'mlat_interest': ['{0:06X}'.format(x.icao) for x in r.mlat_interest],
-                'clocksync': self.clock_tracker.dump_receiver_state(r)
-            }
+            state = {'receivers': {},
+                     'aircraft': {}}
 
-        with closing(open('state.json', 'w')) as f:
-            json.dump(state, fp=f)
+            for r in self.receivers.values():
+                state['receivers'][r.user] = {
+                    'traffic': ['{0:06X}'.format(x.icao) for x in r.requested],
+                    'tracking': ['{0:06X}'.format(x.icao) for x in r.tracking],
+                    'sync_interest': ['{0:06X}'.format(x.icao) for x in r.sync_interest],
+                    'mlat_interest': ['{0:06X}'.format(x.icao) for x in r.mlat_interest],
+                    'clocksync': self.clock_tracker.dump_receiver_state(r)
+                }
+
+            with closing(open('state.json', 'w')) as f:
+                json.dump(state, fp=f)
+
+    def close(self):
+        self._write_state_task.cancel()
+
+    def wait_closed(self):
+        return asyncio.wait([self._write_state_task])
 
     def new_receiver(self, connection, user, auth, position, clock_type):
         """Assigns a new receiver ID for a given user.
@@ -112,7 +127,15 @@ failure.
         if self.authenticator is not None:
             self.authenticator(handle, auth)  # may raise ValueError if authentication fails
 
+        # compute inter-station distances
+        handle.distance[handle] = 0
+        for other_receiver in self.receivers.values():
+            distance = geodesy.ecef_distance(position, other_receiver.position)
+            handle.distance[other_receiver] = distance
+            other_receiver.distance[handle] = distance
+
         self.receivers[handle.user] = handle  # authenticator might update user
+
         return handle
 
     def receiver_disconnect(self, receiver):
@@ -124,6 +147,10 @@ failure.
             self.clock_tracker.receiver_disconnect(receiver)
             del self.receivers[receiver.user]
 
+            # clean up old distance entries
+            for other_receiver in self.receivers.values():
+                other_receiver.distance.pop(receiver, None)
+
     def receiver_sync(self, receiver,
                       even_time, odd_time, even_message, odd_message):
         """Receive a DF17 message pair for clock synchronization."""
@@ -133,7 +160,9 @@ failure.
 
     def receiver_mlat(self, receiver, timestamp, message):
         """Receive a message for multilateration."""
-        pass
+        self.mlat_tracker.receiver_mlat(receiver,
+                                        timestamp,
+                                        message)
 
     def receiver_tracking_add(self, receiver, icao_set):
         """Update a receiver's tracking set by adding some aircraft."""
