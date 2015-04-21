@@ -1,5 +1,6 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
+import math
 import pygraph.classes.graph
 import pygraph.algorithms.minmax
 
@@ -9,6 +10,10 @@ class _Predictor(object):
     def __init__(self, predict, error):
         self.predict = predict
         self.error = error
+
+
+def _identity_predict(x):
+    return x
 
 
 def _make_predictors(clocktracker, station0, station1):
@@ -23,6 +28,11 @@ def _make_predictors(clocktracker, station0, station1):
 
     if station0 is station1:
         return None
+
+    if station0.clock.epoch is not None and station0.clock.epoch == station1.clock.epoch:
+        # Assume clocks are closely synchronized to the epoch (and therefore to each other)
+        predictor = _Predictor(_identity_predict, math.sqrt(station0.clock.jitter ** 2 + station1.clock.jitter ** 2))
+        return (predictor, predictor)
 
     if station0 < station1:
         pairing = clocktracker.clock_pairs.get((station0, station1))
