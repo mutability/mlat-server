@@ -199,7 +199,7 @@ class ClockPairing(object):
         self.ts_peer.append(peer_ts)
 
         p_var = prediction_error ** 2
-        self.var.insert(i, p_var)
+        self.var.append(p_var)
         self.var_sum += p_var
 
         # if we are accepting an outlier, do not include it in our integral term
