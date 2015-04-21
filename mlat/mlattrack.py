@@ -4,10 +4,15 @@ import asyncio
 import time
 import logging
 import operator
+import numpy
+import math
 
 import modes.message
 import mlat.config
 import mlat.clocknorm
+import mlat.solver
+import mlat.geodesy
+import mlat.constants
 
 glogger = logging.getLogger("mlattrack")
 
@@ -41,17 +46,22 @@ class MlatTracker(object):
     def _resolve(self, group):
         del self.pending[group.message]
 
-        # If this message has an altitude, and we saw it more than once,
-        # then it's probably valid - tell the tracker.
-        decoded = None
-        if len(group.copies) > 2:
-            decoded = modes.message.decode(group.message)
-            if decoded.altitude is not None:
-                self.tracker.update_altitude(decoded.address, decoded.altitude)
-
         # less than 3 messages -> no go
         if len(group.copies) < 3:
             return
+
+        decoded = modes.message.decode(group.message)
+
+        ac = self.tracker.aircraft[decoded.address]
+
+        # If this message has an altitude, and we saw >=3 copies of it
+        # then it's probably valid - update the aircraft state.
+        if decoded.altitude is not None:
+            ac.altitude = decoded.altitude
+            ac.last_altitude_time = time.monotonic()
+
+        if ac.last_position_time is not None and time.monotonic() - ac.last_position_time < 2.0:
+            return  # ratelimit to one position per 2 seconds
 
         # construct a map of receiver -> list of timestamps
         timestamp_map = {}
@@ -74,19 +84,67 @@ class MlatTracker(object):
             if len(component) >= 3:  # don't bother with orphan components at all
                 clusters.extend(_cluster_timestamps(component))
 
-        if decoded is None:
-            decoded = modes.message.decode(group.message)
+        if not clusters:
+            return
 
-        #if clusters:
-        #    glogger.info("Clusters for {a:06X} DF{df}".format(a=decoded.address, df=decoded.DF))
-        #    for cluster in clusters:
-        #        glogger.info(" Cluster:")
-        #        t0 = cluster[0][1]
-        #        for receiver, timestamp, error in cluster:
-        #            glogger.info("  {r:20s} @ {t:6.1f}us +/- {e:4.1f}us".format(
-        #                r=receiver.user,
-        #                t=(timestamp - t0) * 1e6,
-        #                e=error * 1e6))
+        # find altitude
+        if decoded.altitude is not None:
+            altitude = decoded.altitude
+        else:
+            if ac.altitude is None:
+                return
+            if time.monotonic() - ac.last_altitude_time > 30.0:
+                return
+            altitude = ac.altitude
+
+        # Convert to meters
+        altitude = altitude * mlat.constants.FTOM
+
+        # If we have a recent position use that as the starting point for the solver.
+        # Otherwise, we will fall back to using the closest station.
+        if ac.position is None or time.monotonic() > ac.last_position_time > 120:
+            position = None
+        else:
+            position = ac.position
+
+        # start from the largest cluster
+        result = None
+        clusters.sort(key=operator.itemgetter(0))
+        while clusters:
+            distinct, cluster = clusters.pop()
+            cluster.sort(key=operator.itemgetter(1))  # sort by increasing timestamp
+            result = mlat.solver.solve(cluster, altitude, position if position else cluster[0][0].position)
+            if result:
+                # estimate the error
+                ecef, ecef_cov = result
+                if ecef_cov is not None:
+                    var_est = numpy.sum(numpy.diagonal(ecef_cov))
+                else:
+                    var_est = 0
+
+                if var_est > 100e6:
+                    result = None
+                    continue
+
+                break
+
+        if not result:
+            return
+
+        ecef, ecef_cov = result
+        ac.position = ecef
+        ac.last_position_time = time.monotonic()
+
+        lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
+        glogger.info("Success! {a:06X} at {lat:.4f},{lon:.4f},{alt:.0f}  ({d}/{n} stations, {err:.0f}m error)".format(
+            a=decoded.address,
+            lat=lat,
+            lon=lon,
+            alt=alt*mlat.constants.MTOF,
+            n=len(cluster),
+            d=distinct,
+            err=math.sqrt(var_est)))
+        # XXX report it
 
 
 def _cluster_timestamps(component):
@@ -178,6 +236,6 @@ def _cluster_timestamps(component):
                         distinct_receivers += 1
 
             if distinct_receivers >= 3:
-                clusters.append(cluster)
+                clusters.append((distinct_receivers, cluster))
 
     return clusters

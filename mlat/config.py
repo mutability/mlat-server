@@ -16,3 +16,6 @@ MAX_ALT = 50000 * mlat.constants.FTOM
 
 # how long to wait to accumulate messages before doing multilateration, seconds
 MLAT_DELAY = 2.5
+
+# maxfev (maximum function evaluations) for the solver
+SOLVER_MAXFEV = 50
