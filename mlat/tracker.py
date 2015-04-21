@@ -51,9 +51,12 @@ class Tracker(object):
 
     def remove(self, receiver, icao_set):
         for icao in icao_set:
-            ac = self.aircraft[icao]
-            ac.tracking.remove(receiver)
-            receiver.tracking.remove(ac)
+            ac = self.aircraft.get(icao)
+            if not ac:
+                continue
+
+            ac.tracking.discard(receiver)
+            receiver.tracking.discard(ac)
 
     def remove_all(self, receiver):
         for icao in receiver.tracking:
