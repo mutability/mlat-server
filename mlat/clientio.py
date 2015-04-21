@@ -16,31 +16,61 @@ from . import connection
 from .constants import MTOF
 
 
+logger = logging.getLogger("clientio")
+
+
+class JsonClientListener(object):
+    def __init__(self):
+        self.tcp_server = None
+        self.udp_transport = None
+        self.udp_protocol = None
+        self.clients = []
+
+    def close(self):
+        self.tcp_server.close()
+        if self.udp_transport:
+            self.udp_transport.abort()
+        for client in self.clients:
+            client.close()
+
+    @asyncio.coroutine
+    def wait_closed(self):
+        waitlist = [asyncio.async(client.wait_closed()) for client in self.clients]
+        waitlist.append(self.tcp_server.wait_closed())
+        done, pending = yield from asyncio.wait(waitlist)
+
+
 @asyncio.coroutine
-def start_listeners(tcp_port, udp_port, coordinator, loop=None):
+def start_client_listener(tcp_port, udp_port, coordinator, motd, bind_address, loop=None):
     if loop is None:
         loop = asyncio.get_event_loop()
 
-    if udp_port is not None:
+    listener = JsonClientListener()
+
+    if udp_port:
         dgram_coro = loop.create_datagram_endpoint(protocol_factory=PackedMlatServerProtocol,
                                                    family=socket.AF_INET,
-                                                   local_addr=(None, udp_port))
-        udp_transport, udp_protocol = (yield from dgram_coro)
-    else:
-        udp_transport = udp_protocol = None
+                                                   local_addr=(bind_address, udp_port))
+        listener.udp_transport, listener.udp_protocol = (yield from dgram_coro)
 
-    tcp_server = (yield from asyncio.start_server(functools.partial(start_json_client,
-                                                                    udp_protocol=udp_protocol,
-                                                                    coordinator=coordinator),
-                                                  family=socket.AF_INET,
-                                                  port=tcp_port))
+    listener.tcp_server = (yield from asyncio.start_server(functools.partial(start_json_client,
+                                                                             listener=listener,
+                                                                             coordinator=coordinator,
+                                                                             motd=motd),
+                                                           family=socket.AF_INET,
+                                                           host=bind_address,
+                                                           port=tcp_port))
 
-    return (tcp_server, udp_transport)
+    logger.info("Listening for TCP connections on {}".format(listener.tcp_server.sockets[0].getsockname()))
+    if udp_port:
+        logger.info("Listening for UDP datagrams on {}".format(listener.udp_transport.get_extra_info('sockname')))
+
+    return listener
 
 
 def start_json_client(r, w, **kwargs):
     host, port = w.transport.get_extra_info('peername')
-    logging.info('Accepted new client connection from %s:%d', host, port)
+    logger.info('Accepted new client connection from %s:%d', host, port)
     client = JsonClient(r, w, **kwargs)
     client.start()
 
@@ -109,34 +139,78 @@ class PackedMlatServerProtocol(asyncio.DatagramProtocol):
 
 class JsonClient(connection.Connection):
     write_heartbeat_interval = 30.0
-    read_heartbeat_interval = 45.0
+    read_heartbeat_interval = 65.0
 
-    def __init__(self, reader, writer, *, coordinator, udp_protocol):
+    def __init__(self, reader, writer, *, coordinator, listener, motd):
+        self.logger = logger
         self.r = reader
         self.w = writer
         self.coordinator = coordinator
-        self.udp_protocol = udp_protocol
-        self._udp_key = None
+        self.listener = listener
+        self.motd = motd
+
         self.transport = writer.transport
-        self.compression_methods = (
+        self.host, self.port = self.transport.get_extra_info('peername')
+        self.udp_protocol = listener.udp_protocol
+
+        self.receiver = None
+
+        self._read_task = None
+        self._heartbeat_task = None
+        self._pending_traffic_update = None
+        self._pending_flush = None
+
+        self._udp_key = None
+        self._compression_methods = (
             ('zlib2', self.handle_zlib_messages, self.write_zlib),
             ('zlib', self.handle_zlib_messages, self.write_raw),
             ('none', self.handle_line_messages, self.write_raw)
         )
-        self.receiver = None
-        self._read_task = None
         self._last_message_time = None
-
-        self._pending_traffic_update = None
-        self._requested_traffic = set()
-        self._wanted_traffic = set()
-
         self._compressor = None
         self._pending_flush = None
         self._writebuf = []
 
+        self._requested_traffic = set()
+        self._wanted_traffic = set()
+
     def start(self):
         self._read_task = asyncio.async(self.handle_connection())
+
+    def close(self):
+        self.logger.info('Disconnected')
+
+        self.send = self.write_discard  # suppress all output from hereon in
+
+        if self._udp_key is not None:
+            self.udp_protocol.remove_client(self._udp_key)
+
+        # tell the coordinator, this might cause traffic to be suppressed
+        # from other receivers
+        if self.receiver is not None:
+            self.coordinator.receiver_disconnect(self.receiver)
+
+        if self._read_task is not None:
+            self._read_task.cancel()
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
+        if self._pending_flush is not None:
+            self._pending_flush.cancel()
+        if self._pending_traffic_update is not None:
+            self._pending_traffic_update.cancel()
+
+        self.transport.close()
+
+    @asyncio.coroutine
+    def wait_closed(self):
+        waitlist = []
+        if self._read_task:
+            waitlist.append(self._read_task)
+        if self._heartbeat_task:
+            waitlist.append(self._heartbeat_task)
+
+        if waitlist:
+            yield from asyncio.wait(waitlist)
 
     @asyncio.coroutine
     def handle_heartbeats(self):
@@ -156,8 +230,8 @@ class JsonClient(connection.Connection):
             # if we have seen no activity recently, declare the
             # connection dead and close it down
             if (time.monotonic() - self._last_message_time) > self.read_heartbeat_interval:
-                logging.warn("Client timeout, no recent messages seen, closing connection")
-                self._read_task.cancel()  # finally block will do cleanup
+                logger.warn("Client timeout, no recent messages seen, closing connection")
+                self.close()
                 return
 
             # write a heartbeat message
@@ -175,8 +249,6 @@ class JsonClient(connection.Connection):
         This coroutine's task is stashed as self.read_task; cancelling this
         task will cause the client connection to be closed and cleaned up."""
 
-        heartbeat_task = None
-
         try:
             hs = yield from asyncio.wait_for(self.r.readline(), timeout=30.0)
             if not self.process_handshake(hs):
@@ -184,40 +256,21 @@ class JsonClient(connection.Connection):
 
             # start heartbeat handling now that the handshake is done
             self._last_message_time = time.monotonic()
-            heartbeat_task = asyncio.async(self.handle_heartbeats())
+            self._heartbeat_task = asyncio.async(self.handle_heartbeats())
 
             yield from self.handle_messages()
 
         except asyncio.IncompleteReadError:
-            logging.info('Client EOF')
+            self.logger.info('Client EOF')
 
         except asyncio.CancelledError:
-            logging.info('Client heartbeat timeout or other cancellation')
+            self.logger.info('Client heartbeat timeout or other cancellation')
 
         except Exception:
-            logging.exception('Exception handling client')
+            self.logger.exception('Exception handling client')
 
         finally:
-            logging.info('Disconnected')
-
-            self.send = self.write_discard  # suppress all output from hereon in
-
-            if self._udp_key is not None:
-                self.udp_protocol.remove_client(self._udp_key)
-
-            # tell the coordinator, this might cause traffic to be suppressed
-            # from other receivers
-            if self.receiver is not None:
-                self.coordinator.receiver_disconnect(self.receiver)
-
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-            if self._pending_flush is not None:
-                self._pending_flush.cancel()
-            if self._pending_traffic_update is not None:
-                self._pending_traffic_update.cancel()
-
-            self.transport.close()
+            self.close()
 
     def process_handshake(self, line):
         deny = None
@@ -231,9 +284,12 @@ class JsonClient(connection.Connection):
                 if hs['version'] != 2:
                     raise ValueError('Unsupported version in handshake')
 
+                user = str(hs['user'])
+                self.logger = logging.getLogger("clientio.{user}".format(user=user))
+
                 peer_compression_methods = set(hs['compress'])
                 self.compress = None
-                for c, readmeth, writemeth in self.compression_methods:
+                for c, readmeth, writemeth in self._compression_methods:
                     if c in peer_compression_methods:
                         self.compress = c
                         self.handle_messages = readmeth
@@ -259,7 +315,6 @@ class JsonClient(connection.Connection):
                 ecef = geodesy.llh2ecef((lat, lon, alt))
 
                 clock_type = str(hs.get('clock_type', 'dump1090'))
-                user = str(hs['user'])
 
                 if not hs.get('heartbeat', False):
                     raise ValueError('must use heartbeats')
@@ -294,18 +349,17 @@ class JsonClient(connection.Connection):
                 deny = 'Bad values in handshake: ' + str(e)
 
         if deny:
-            logging.info('Handshake failed: %s', deny)
+            self.logger.info('Handshake failed: %s', deny)
             self.write_raw(deny=[deny], reconnect_in=util.fuzzy(900))
             return False
 
-        # todo: MOTD
         response = {"compress": self.compress,
                     "reconnect_in": util.fuzzy(15),
                     "selective_traffic": True,
                     "heartbeat": True,
                     "return_results": self.use_return_results,
                     "rate_reports": True,
-                    "motd": "In-development v2 server. Expect odd behaviour."}
+                    "motd": self.motd}
 
         if self.use_udp:
             self._udp_key = self.udp_protocol.add_client(sync_handler=self.process_sync,
@@ -315,6 +369,7 @@ class JsonClient(connection.Connection):
                                          self._udp_key)
 
         self.write_raw(**response)
+        self.logger.info("Handshake successful.")
         return True
 
     def write_raw(self, **kwargs):
@@ -446,7 +501,7 @@ class JsonClient(connection.Connection):
         elif 'rate_report' in msg:
             self.process_rate_report_message(msg['rate_report'])
         else:
-            logging.info('Received an unexpected message: %s', msg)
+            self.logger.info('Received an unexpected message: %s', msg)
 
     def process_sync(self, et, ot, em, om):
         self.coordinator.receiver_sync(self.receiver, et, ot, em, om)
