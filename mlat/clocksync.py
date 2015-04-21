@@ -6,6 +6,8 @@ import bisect
 import logging
 from contextlib import closing
 
+glogger = logging.getLogger("clocksync")
+
 
 class Clock(object):
     """A particular clock. Stores characteristics of a clock,
@@ -187,7 +189,7 @@ class ClockPairing(object):
             # again.
 
             if peer_ts < self.ts_peer[-1]:
-                logging.info("{0}: monotonicity broken, reset".format(self))
+                glogger.info("{0}: monotonicity broken, reset".format(self))
                 self.ts_base = []
                 self.ts_peer = []
                 self.var = []
@@ -223,7 +225,7 @@ class ClockPairing(object):
         self.outliers = max(0, self.outliers - 2)
 
         if abs(prediction_error) > self.outlier_threshold:
-            logging.info("{r}: {a:06X}: step by {e:.1f}us".format(r=self, a=address, e=prediction_error*1e6))
+            glogger.info("{r}: {a:06X}: step by {e:.1f}us".format(r=self, a=address, e=prediction_error*1e6))
 
     def predict_peer(self, base_ts):
         if self.n == 0:

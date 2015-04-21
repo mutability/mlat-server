@@ -16,7 +16,7 @@ from . import connection
 from .constants import MTOF
 
 
-logger = logging.getLogger("clientio")
+glogger = logging.getLogger("clientio")
 
 
 class JsonClientListener(object):
@@ -61,16 +61,16 @@ def start_client_listener(tcp_port, udp_port, coordinator, motd, bind_address, l
                                                            host=bind_address,
                                                            port=tcp_port))
 
-    logger.info("Listening for TCP connections on {}".format(listener.tcp_server.sockets[0].getsockname()))
+    glogger.info("Listening for TCP connections on {}".format(listener.tcp_server.sockets[0].getsockname()))
     if udp_port:
-        logger.info("Listening for UDP datagrams on {}".format(listener.udp_transport.get_extra_info('sockname')))
+        glogger.info("Listening for UDP datagrams on {}".format(listener.udp_transport.get_extra_info('sockname')))
 
     return listener
 
 
 def start_json_client(r, w, **kwargs):
     host, port = w.transport.get_extra_info('peername')
-    logger.info('Accepted new client connection from %s:%d', host, port)
+    glogger.info('Accepted new client connection from %s:%d', host, port)
     client = JsonClient(r, w, **kwargs)
     client.start()
 
@@ -142,7 +142,7 @@ class JsonClient(connection.Connection):
     read_heartbeat_interval = 65.0
 
     def __init__(self, reader, writer, *, coordinator, listener, motd):
-        self.logger = logger
+        self.logger = glogger
         self.r = reader
         self.w = writer
         self.coordinator = coordinator
@@ -239,12 +239,12 @@ class JsonClient(connection.Connection):
             # if we have seen no activity recently, declare the
             # connection dead and close it down
             if (time.monotonic() - self._last_message_time) > self.read_heartbeat_interval:
-                logger.warn("Client timeout, no recent messages seen, closing connection")
+                self.logger.warn("No recent messages seen, closing connection")
                 self.close()
                 return
 
             # write a heartbeat message
-            self.send(heartbeat=round(time.time(), 3))
+            self.send(heartbeat={'server_time': round(time.time(), 3)})
 
     @asyncio.coroutine
     def handle_connection(self):
@@ -273,7 +273,7 @@ class JsonClient(connection.Connection):
             self.logger.info('Client EOF')
 
         except asyncio.CancelledError:
-            self.logger.info('Client heartbeat timeout or other cancellation')
+            pass
 
         except Exception:
             self.logger.exception('Exception handling client')
