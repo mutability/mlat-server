@@ -30,7 +30,7 @@ class JsonClientListener(object):
         self.tcp_server.close()
         if self.udp_transport:
             self.udp_transport.abort()
-        for client in self.clients:
+        for client in list(self.clients):  # take a copy, close will modify the list
             client.close()
 
     @asyncio.coroutine
@@ -175,11 +175,19 @@ class JsonClient(connection.Connection):
         self._wanted_traffic = set()
 
     def start(self):
+        self.listener.clients.append(self)
         self._read_task = asyncio.async(self.handle_connection())
 
     def close(self):
-        self.logger.info('Disconnected')
+        if not self.transport:
+            return  # already closed
 
+        try:
+            self.listener.clients.remove(self)
+        except ValueError:
+            pass
+
+        self.logger.info('Disconnected')
         self.send = self.write_discard  # suppress all output from hereon in
 
         if self._udp_key is not None:
@@ -200,6 +208,7 @@ class JsonClient(connection.Connection):
             self._pending_traffic_update.cancel()
 
         self.transport.close()
+        self.transport = None
 
     @asyncio.coroutine
     def wait_closed(self):
