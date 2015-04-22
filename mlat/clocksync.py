@@ -4,7 +4,6 @@ import math
 import time
 import bisect
 import logging
-from contextlib import closing
 
 glogger = logging.getLogger("clocksync")
 
