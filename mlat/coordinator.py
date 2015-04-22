@@ -1,5 +1,6 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
+import signal
 import asyncio
 import json
 import logging
@@ -86,6 +87,7 @@ failure.
         self.clock_tracker = clocktrack.ClockTracker()
         self.mlat_tracker = mlattrack.MlatTracker(self)
         self.output_handlers = [self.forward_results]
+        self.sighup_handlers = []
 
         self._write_state_task = asyncio.async(self.write_state())
 
@@ -94,6 +96,22 @@ failure.
 
     def remove_output_handler(self, handler):
         self.output_handlers.remove(handler)
+
+    # it's a pity that asyncio's add_signal_handler doesn't let you have
+    # multiple handlers per signal. so wire up a multiple-handler here.
+    def add_sighup_handler(self, handler):
+        if not self.sighup_handlers:
+            asyncio.get_event_loop().add_signal_handler(signal.SIGHUP, self.sighup)
+        self.sighup_handlers.append(handler)
+
+    def remove_sighup_handler(self, handler):
+        self.sighup_handlers.remove(handler)
+        if not self.sighup_handlers:
+            asyncio.get_event_loop().remove_signal_handler(signal.SIGHUP)
+
+    def sighup(self):
+        for handler in self.sighup_handlers[:]:
+            handler()
 
     @asyncio.coroutine
     def write_state(self):
