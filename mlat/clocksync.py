@@ -209,19 +209,6 @@ class ClockPairing(object):
         if not self.outliers:
             self.cumulative_error = max(-50e-6, min(50e-6, prediction_error))  # limit to 50us
 
-        with closing(open('clocks.csv', 'a')) as f:
-            line = '{t:.3f},{base},{peer},{drift:.2f},{rdrift:.2f},{err:.2f},{cerr:.2f},{stddev:.2f},{o}'.format(
-                t=time.time(),
-                base=self.base.user,
-                peer=self.peer.user,
-                drift=self.drift*1e6,
-                rdrift=self.raw_drift*1e6,
-                err=prediction_error*1e6,
-                cerr=self.cumulative_error*1e6,
-                stddev=self.error*1e6,
-                o=self.outliers)
-            print(line, file=f)
-
         self.outliers = max(0, self.outliers - 2)
 
         if abs(prediction_error) > self.outlier_threshold:
