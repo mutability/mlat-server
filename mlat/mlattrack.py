@@ -26,10 +26,11 @@ class MessageGroup:
 
 
 class MlatTracker(object):
-    def __init__(self, tracker, clock_tracker):
+    def __init__(self, coordinator):
         self.pending = {}
-        self.tracker = tracker
-        self.clock_tracker = clock_tracker
+        self.coordinator = coordinator
+        self.tracker = coordinator.tracker
+        self.clock_tracker = coordinator.clock_tracker
 
     def receiver_mlat(self, receiver, timestamp, message):
         # use message as key
@@ -144,6 +145,10 @@ class MlatTracker(object):
             n=len(cluster),
             d=distinct,
             err=math.sqrt(var_est)))
+
+        for handler in self.coordinator.output_handlers:
+            handler(group.first_seen, decoded.address, ecef, ecef_cov)
+
         # XXX report it
 
 

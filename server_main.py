@@ -7,6 +7,8 @@ import argparse
 
 import mlat.clientio
 import mlat.coordinator
+import mlat.net
+import mlat.output
 
 
 def stop_event_loop(msg, loop):
@@ -14,8 +16,10 @@ def stop_event_loop(msg, loop):
     loop.stop()
 
 
-def main(tcp_port, udp_port, motd, bind_address):
+def main(tcp_port, udp_port, motd, bind_address, basestation_connect, basestation_listen):
     loop = asyncio.get_event_loop()
+
+    net_handlers = []
 
     coordinator = mlat.coordinator.Coordinator()
     server = loop.run_until_complete(mlat.clientio.start_client_listener(tcp_port=tcp_port,
@@ -24,6 +28,19 @@ def main(tcp_port, udp_port, motd, bind_address):
                                                                          motd=motd,
                                                                          bind_address=bind_address))
 
+    for host, port in basestation_connect:
+        net_handlers.append(mlat.output.make_basestation_connector(host=host,
+                                                                   port=port,
+                                                                   coordinator=coordinator))
+
+    for host, port in basestation_listen:
+        net_handlers.append(mlat.output.make_basestation_listener(host=host,
+                                                                  port=port,
+                                                                  coordinator=coordinator))
+
+    if net_handlers:
+        loop.run_until_complete(asyncio.wait([x.start() for x in net_handlers]))
+
     #loop.add_signal_handler(signal.SIGINT, stop_event_loop, "Halting on SIGINT", loop)
     loop.add_signal_handler(signal.SIGTERM, stop_event_loop, "Halting on SIGTERM", loop)
 
@@ -31,18 +48,34 @@ def main(tcp_port, udp_port, motd, bind_address):
         loop.run_forever()  # Well, until stop() is called anyway!
 
     finally:
+        for h in net_handlers:
+            h.close()
         server.close()
-        loop.run_until_complete(server.wait_closed())
         coordinator.close()
-        loop.run_until_complete(coordinator.wait_closed())
+
+        waitlist = [h.wait_closed() for h in net_handlers] + [server.wait_closed(), coordinator.wait_closed()]
+        loop.run_until_complete(asyncio.wait(waitlist))
         loop.close()
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO,
-                        style='{',
-                        format='{asctime}.{msecs:03.0f}  {levelname:8s} {name:20s} {message}',
-                        datefmt='%Y%m%d %H:%M:%S')
 
+def hostport(s):
+    parts = s.split(':')
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError("{} should be in 'host:port' format".format(s))
+    return (parts[0], int(parts[1]))
+
+
+def port_or_hostport(s):
+    parts = s.split(':')
+    if len(parts) == 1:
+        return ('0.0.0.0', int(parts[0]))
+    if len(parts) == 2:
+        return (parts[0], int(parts[1]))
+
+    raise argparse.ArgumentTypeError("{} should be in 'port' or 'host:port' format".format(s))
+
+
+def argparser():
     parser = argparse.ArgumentParser(description="Multilateration server.")
     parser.add_argument('--motd',
                         type=str,
@@ -58,10 +91,29 @@ if __name__ == '__main__':
     parser.add_argument('--udp-port',
                         help="Port to accept UDP datagram traffic on.",
                         type=int)
+    parser.add_argument('--basestation-connect',
+                        help="Connect to a host:port and send Basestation-format output there",
+                        action='append',
+                        type=hostport,
+                        default=[])
+    parser.add_argument('--basestation-listen',
+                        help="Listen on a [host:]port and send Basestation-format output to clients that connect",
+                        action='append',
+                        type=port_or_hostport,
+                        default=[])
+    return parser
 
-    args = parser.parse_args()
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO,
+                        style='{',
+                        format='{asctime}.{msecs:03.0f}  {levelname:8s} {name:20s} {message}',
+                        datefmt='%Y%m%d %H:%M:%S')
+
+    args = argparser().parse_args()
 
     main(tcp_port=args.tcp_port,
          udp_port=args.udp_port,
          bind_address=args.bind_address,
+         basestation_connect=args.basestation_connect,
+         basestation_listen=args.basestation_listen,
          motd=args.motd)

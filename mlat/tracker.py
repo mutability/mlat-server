@@ -34,6 +34,9 @@ class TrackedAircraft(object):
         # time of last position (time.monotonic())
         self.last_position_time = None
 
+        self.callsign = None
+        self.squawk = None
+
     @property
     def interesting(self):
         """Is this aircraft interesting, i.e. should we forward traffic for it?"""

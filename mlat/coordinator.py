@@ -81,10 +81,16 @@ failure.
         self.authenticator = authenticator
         self.tracker = tracker.Tracker()
         self.clock_tracker = clocktrack.ClockTracker()
-        self.mlat_tracker = mlattrack.MlatTracker(tracker=self.tracker,
-                                                  clock_tracker=self.clock_tracker)
+        self.mlat_tracker = mlattrack.MlatTracker(self)
+        self.output_handlers = []
 
         self._write_state_task = asyncio.async(self.write_state())
+
+    def add_output_handler(self, handler):
+        self.output_handlers.append(handler)
+
+    def remove_output_handler(self, handler):
+        self.output_handlers.remove(handler)
 
     @asyncio.coroutine
     def write_state(self):
