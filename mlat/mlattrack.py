@@ -55,11 +55,18 @@ class MlatTracker(object):
 
         ac = self.tracker.aircraft[decoded.address]
 
-        # If this message has an altitude, and we saw >=3 copies of it
-        # then it's probably valid - update the aircraft state.
+        # When we've seen a few copies of the same message, it's
+        # probably correct. Update the tracker with newly seen
+        # altitudes, squawks, callsigns.
         if decoded.altitude is not None:
             ac.altitude = decoded.altitude
             ac.last_altitude_time = time.monotonic()
+
+        if decoded.squawk is not None:
+            ac.squawk = decoded.squawk
+
+        if decoded.callsign is not None:
+            ac.callsign = decoded.callsign
 
         if ac.last_position_time is not None and time.monotonic() - ac.last_position_time < 2.0:
             return  # ratelimit to one position per 2 seconds
