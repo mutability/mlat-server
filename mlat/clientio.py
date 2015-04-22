@@ -438,6 +438,7 @@ class JsonClient(connection.Connection):
             line = yield from self.r.readline()
             if not line:
                 return
+            self._last_message_time = time.monotonic()
             yield from self.process_message(line)
 
     @asyncio.coroutine
@@ -450,6 +451,8 @@ class JsonClient(connection.Connection):
 
             packet = (yield from self.r.readexactly(hlen))
             packet += b'\x00\x00\xff\xff'
+
+            self._last_message_time = time.monotonic()
 
             linebuf = ''
             decompression_done = False
@@ -484,7 +487,6 @@ class JsonClient(connection.Connection):
 
     def process_message(self, line):
         #logging.info("%s >> %s", self.receiver.user, line)
-        self._last_message_time = time.monotonic()
         msg = json.loads(line)
 
         if 'sync' in msg:
