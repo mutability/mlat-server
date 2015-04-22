@@ -84,13 +84,7 @@ def port_or_hostport(s):
 
 def argparser():
     parser = argparse.ArgumentParser(description="Multilateration server.")
-    parser.add_argument('--motd',
-                        type=str,
-                        help="Server MOTD",
-                        default="In-development v2 server. Expect odd behaviour.")
-    parser.add_argument('--bind-address',
-                        help="Host to bind to when accepting connections.",
-                        default="0.0.0.0")
+
     parser.add_argument('--tcp-port',
                         help="Port to accept TCP control connections on.",
                         type=int,
@@ -98,6 +92,13 @@ def argparser():
     parser.add_argument('--udp-port',
                         help="Port to accept UDP datagram traffic on.",
                         type=int)
+    parser.add_argument('--motd',
+                        type=str,
+                        help="Server MOTD",
+                        default="In-development v2 server. Expect odd behaviour.")
+    parser.add_argument('--bind-address',
+                        help="Host to bind to when accepting connections.",
+                        default="0.0.0.0")
 
     parser.add_argument('--write-csv',
                         help="CSV file path to write results to",
@@ -114,6 +115,7 @@ def argparser():
                         action='append',
                         type=port_or_hostport,
                         default=[])
+
     return parser
 
 if __name__ == '__main__':
