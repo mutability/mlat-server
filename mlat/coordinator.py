@@ -11,7 +11,8 @@ from mlat import mlattrack
 from mlat import geodesy
 
 
-class ReceiverHandle(object):
+
+class Receiver(object):
     """Represents a particular connected receiver and the associated
     connection that manages it."""
 
@@ -58,9 +59,9 @@ class ReceiverHandle(object):
         return self.user
 
     def __repr__(self):
-        return 'ReceiverHandle({0!r},{1!r})@{2}'.format(self.user,
-                                                        self.connection,
-                                                        id(self))
+        return 'Receiver({0!r},{1!r})@{2}'.format(self.user,
+                                                  self.connection,
+                                                  id(self))
 
 
 class Coordinator(object):
@@ -128,21 +129,20 @@ failure.
             raise ValueError('User {user} is already connected'.format(user=user))
 
         clock = clocksync.make_clock(clock_type)
-        handle = ReceiverHandle(user, connection, clock, position)
+        receiver = Receiver(user, connection, clock, position)
 
         if self.authenticator is not None:
-            self.authenticator(handle, auth)  # may raise ValueError if authentication fails
+            self.authenticator(receiver, auth)  # may raise ValueError if authentication fails
 
         # compute inter-station distances
-        handle.distance[handle] = 0
+        receiver.distance[receiver] = 0
         for other_receiver in self.receivers.values():
             distance = geodesy.ecef_distance(position, other_receiver.position)
-            handle.distance[other_receiver] = distance
-            other_receiver.distance[handle] = distance
+            receiver.distance[other_receiver] = distance
+            other_receiver.distance[receiver] = distance
 
-        self.receivers[handle.user] = handle  # authenticator might update user
-
-        return handle
+        self.receivers[receiver.user] = receiver  # authenticator might update user
+        return receiver
 
     def receiver_disconnect(self, receiver):
         """Notes that the given receiver has disconnected."""
