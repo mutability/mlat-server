@@ -79,7 +79,7 @@ class PackedMlatServerProtocol(asyncio.DatagramProtocol):
     TYPE_MLAT_SHORT = 2
     TYPE_MLAT_LONG = 3
 
-    STRUCT_HEADER = struct.Struct(">IQ")
+    STRUCT_HEADER = struct.Struct(">IHQ")
     STRUCT_SYNC = struct.Struct(">ii14s14s")
     STRUCT_MLAT_SHORT = struct.Struct(">i7s")
     STRUCT_MLAT_LONG = struct.Struct(">i14s")
@@ -104,7 +104,7 @@ class PackedMlatServerProtocol(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, addr):
         try:
-            key, base = self.STRUCT_HEADER.unpack_from(data, 0)
+            key, seq, base = self.STRUCT_HEADER.unpack_from(data, 0)
             sync_handler, mlat_handler = self.clients[key]  # KeyError on bad client key
 
             i = self.STRUCT_HEADER.size
@@ -342,7 +342,7 @@ class JsonClient(connection.Connection):
                 else:
                     self.report_mlat_position = self.report_mlat_position_discard
 
-                self.use_udp = (self.udp_protocol is not None and bool(hs.get('udp_transport', False)))
+                self.use_udp = (self.udp_protocol is not None and hs.get('udp_transport', 0) == 2)
 
                 self.receiver = self.coordinator.new_receiver(connection=self,
                                                               user=user,
