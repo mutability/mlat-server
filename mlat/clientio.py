@@ -320,8 +320,6 @@ class JsonClient(connection.Connection):
                 if alt < -1000 or alt > 10000:
                     raise ValueError('invalid altitude, should be -1000 .. 10000')
 
-                ecef = geodesy.llh2ecef((lat, lon, alt))
-
                 clock_type = str(hs.get('clock_type', 'dump1090'))
 
                 if not hs.get('heartbeat', False):
@@ -348,7 +346,7 @@ class JsonClient(connection.Connection):
                                                               user=user,
                                                               auth=hs.get('auth'),
                                                               clock_type=clock_type,
-                                                              position=ecef)
+                                                              position_llh=(lat, lon, alt))
 
             except KeyError as e:
                 deny = 'Missing field in handshake: ' + str(e)

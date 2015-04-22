@@ -19,11 +19,12 @@ class Receiver(object):
     """Represents a particular connected receiver and the associated
     connection that manages it."""
 
-    def __init__(self, user, connection, clock, position):
+    def __init__(self, user, connection, clock, position, position_llh):
         self.user = user
         self.connection = connection
         self.clock = clock
         self.position = position
+        self.position_llh = position_llh
         self.dead = False
 
         self.sync_count = 0
@@ -118,20 +119,24 @@ class Coordinator(object):
         while True:
             yield from asyncio.sleep(30.0)
 
-            state = {'receivers': {},
-                     'aircraft': {}}
+            sync = {}
+            locations = {}
 
             for r in self.receivers.values():
-                state['receivers'][r.user] = {
-                    'traffic': ['{0:06X}'.format(x.icao) for x in r.requested],
-                    'tracking': ['{0:06X}'.format(x.icao) for x in r.tracking],
-                    'sync_interest': ['{0:06X}'.format(x.icao) for x in r.sync_interest],
-                    'mlat_interest': ['{0:06X}'.format(x.icao) for x in r.mlat_interest],
-                    'clocksync': self.clock_tracker.dump_receiver_state(r)
+                sync[r.user] = {
+                    'peers': self.clock_tracker.dump_receiver_state(r)
+                }
+                locations[r.user] = {
+                    'lat': r.position_llh[0],
+                    'lon': r.position_llh[1],
+                    'alt': r.position_llh[2]
                 }
 
-            with closing(open('state.json', 'w')) as f:
-                json.dump(state, fp=f)
+            with closing(open('sync.json', 'w')) as f:
+                json.dump(sync, fp=f)
+
+            with closing(open('locations.json', 'w')) as f:
+                json.dump(locations, fp=f)
 
     def close(self):
         self._write_state_task.cancel()
@@ -139,7 +144,7 @@ class Coordinator(object):
     def wait_closed(self):
         return asyncio.wait([self._write_state_task])
 
-    def new_receiver(self, connection, user, auth, position, clock_type):
+    def new_receiver(self, connection, user, auth, position_llh, clock_type):
         """Assigns a new receiver ID for a given user.
         Returns the new receiver ID.
 
@@ -149,7 +154,9 @@ class Coordinator(object):
             raise ValueError('User {user} is already connected'.format(user=user))
 
         clock = clocksync.make_clock(clock_type)
-        receiver = Receiver(user, connection, clock, position)
+        receiver = Receiver(user, connection, clock,
+                            position=geodesy.llh2ecef(position_llh),
+                            position_llh=position_llh)
 
         if self.authenticator is not None:
             self.authenticator(receiver, auth)  # may raise ValueError if authentication fails
@@ -157,7 +164,7 @@ class Coordinator(object):
         # compute inter-station distances
         receiver.distance[receiver] = 0
         for other_receiver in self.receivers.values():
-            distance = geodesy.ecef_distance(position, other_receiver.position)
+            distance = geodesy.ecef_distance(receiver.position, other_receiver.position)
             receiver.distance[other_receiver] = distance
             other_receiver.distance[receiver] = distance
 
