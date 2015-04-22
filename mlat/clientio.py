@@ -138,7 +138,7 @@ class PackedMlatServerProtocol(asyncio.DatagramProtocol):
 
 class JsonClient(connection.Connection):
     write_heartbeat_interval = 30.0
-    read_heartbeat_interval = 65.0
+    read_heartbeat_interval = 150.0
 
     def __init__(self, reader, writer, *, coordinator, listener, motd):
         self.logger = glogger
