@@ -118,23 +118,20 @@ class MlatTracker(object):
         # start from the largest cluster
         result = None
         clusters.sort(key=operator.itemgetter(0))
-        while clusters:
+        while clusters and not result:
             distinct, cluster = clusters.pop()
-            cluster.sort(key=operator.itemgetter(1))  # sort by increasing timestamp
-            result = mlat.solver.solve(cluster, altitude, position if position else cluster[0][0].position)
-            if result:
+            cluster.sort(key=operator.itemgetter(1))  # sort by increasing timestamp (todo: just assume descending..)
+            r = mlat.solver.solve(cluster, altitude, position if position else cluster[0][0].position)
+            if r:
                 # estimate the error
-                ecef, ecef_cov = result
+                ecef, ecef_cov = r
                 if ecef_cov is not None:
                     var_est = numpy.sum(numpy.diagonal(ecef_cov))
                 else:
                     var_est = 0
 
-                if var_est > 100e6:
-                    result = None
-                    continue
-
-                break
+                if var_est < 100e6:
+                    result = r
 
         if not result:
             return
@@ -196,9 +193,9 @@ def _cluster_timestamps(component):
         #    glogger.info("  {r} {t:.1f}us {e:.1f}us".format(r=r.user, t=t*1e6, e=e*1e6))
 
         while len(group) >= 3:
-            head = group.pop()
-            cluster = [head]
-            first_timestamp = head[1]
+            tail = group.pop()
+            cluster = [tail]
+            last_timestamp = tail[1]
             distinct_receivers = 1
 
             #glogger.info("forming cluster from group:")
@@ -207,7 +204,7 @@ def _cluster_timestamps(component):
             for i in range(len(group) - 1, -1, -1):
                 receiver, timestamp, error = group[i]
                 #glogger.info("  consider {i} = {r} {t:.1f}us".format(i=i, r=receiver.user, t=timestamp*1e6))
-                if (timestamp - first_timestamp) > 2e-3:
+                if (last_timestamp - timestamp) > 2e-3:
                     # Can't possibly be part of the same cluster.
                     #
                     # Note that this is a different test to the rough grouping above:
@@ -248,6 +245,7 @@ def _cluster_timestamps(component):
                         distinct_receivers += 1
 
             if distinct_receivers >= 3:
+                cluster.reverse()  # make it ascending timestamps again
                 clusters.append((distinct_receivers, cluster))
 
     return clusters
