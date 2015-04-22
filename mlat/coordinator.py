@@ -74,12 +74,12 @@ class Coordinator(object):
     def __init__(self, authenticator=None):
         """Coordinator(authenticator=None) -> coordinator object.
 
-If authenticator is not None, it should be a callable that takes two arguments:
-the newly created ReceiverHandle, plus the 'auth' argument provided by the connection.
-The authenticator may modify the handle if needed. The authenticator should either
-return silently on success, or raise an exception (propagated to the caller) on
-failure.
-"""
+        If authenticator is not None, it should be a callable that takes two arguments:
+        the newly created Receiver, plus the 'auth' argument provided by the connection.
+        The authenticator may modify the receiver if needed. The authenticator should either
+        return silently on success, or raise an exception (propagated to the caller) on
+        failure.
+        """
 
         self.receivers = {}    # keyed by username
         self.authenticator = authenticator
