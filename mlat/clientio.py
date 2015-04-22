@@ -592,16 +592,18 @@ class JsonClient(connection.Connection):
     def report_mlat_position_ecef(self, receiver,
                                   receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
         # newer client
-        self.send(result={'@': round(receive_timestamp, 3),
-                          'addr': '{0:06x}'.format(address),
-                          'ecef': (round(ecef[0], 0),
-                                   round(ecef[1], 0),
-                                   round(ecef[2], 0)),
-                          'cov': (round(ecef_cov[0, 0], 0),
-                                  round(ecef_cov[0, 1], 0),
-                                  round(ecef_cov[0, 2], 0),
-                                  round(ecef_cov[1, 1], 0),
-                                  round(ecef_cov[1, 2], 0),
-                                  round(ecef_cov[2, 2], 0)),
-                          'n': len(receivers),
-                          'nd': distinct})
+        result = {'@': round(receive_timestamp, 3),
+                  'addr': '{0:06x}'.format(address),
+                  'ecef': (round(ecef[0], 0),
+                           round(ecef[1], 0),
+                           round(ecef[2], 0)),
+                  'n': len(receivers),
+                  'nd': distinct}
+        if ecef_cov is not None:
+            result['cov'] = (round(ecef_cov[0, 0], 0),
+                             round(ecef_cov[0, 1], 0),
+                             round(ecef_cov[0, 2], 0),
+                             round(ecef_cov[1, 1], 0),
+                             round(ecef_cov[1, 2], 0),
+                             round(ecef_cov[2, 2], 0))
+        self.send(result=result)
