@@ -22,14 +22,15 @@ class Connection(object):
         raise NotImplementedError
 
     def report_mlat_position(self, receiver,
-                             icao, utc, ecef, ecef_cov, nstations):
+                             receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
         """Report a multilaterated position result.
 
         receiver: the handle of the concerned receiver
-        icao: the ICAO address of the aircraft (as an int)
-        utc: the approximate validity time of the position
+        receive_timestamp: the approx UTC time of the position
+        address: the ICAO address of the aircraft (as an int)
         ecef: an (x,y,z) tuple giving the position in ECEF coordinates
         ecef_cov: a 3x3 matrix giving the covariance matrix of ecef
-        nstations: the number of stations that contributed to the result
+        receivers: the set of receivers that contributed to the result
+        distinct: the number of distinct receivers (<= len(receivers))
         """
         raise NotImplementedError

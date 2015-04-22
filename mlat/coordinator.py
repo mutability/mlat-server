@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from contextlib import closing
 
 from mlat import tracker
@@ -10,6 +11,7 @@ from mlat import clocktrack
 from mlat import mlattrack
 from mlat import geodesy
 
+glogger = logging.getLogger("coordinator")
 
 
 class Receiver(object):
@@ -83,7 +85,7 @@ failure.
         self.tracker = tracker.Tracker()
         self.clock_tracker = clocktrack.ClockTracker()
         self.mlat_tracker = mlattrack.MlatTracker(self)
-        self.output_handlers = []
+        self.output_handlers = [self.forward_results]
 
         self._write_state_task = asyncio.async(self.write_state())
 
@@ -192,3 +194,13 @@ failure.
         """Process an ADS-B position rate report for a receiver."""
         receiver.last_rate_report = report
         self.tracker.update_interest(receiver)
+
+    def forward_results(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
+        for receiver in receivers:
+            try:
+                receiver.connection.report_mlat_position(receiver,
+                                                         receive_timestamp, address,
+                                                         ecef, ecef_cov, receivers, distinct)
+            except Exception:
+                glogger.exception("Failed to forward result to receiver {r}".format(r=receiver.user))
+                # eat the exception so it doesn't break our caller

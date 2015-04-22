@@ -98,7 +98,7 @@ class BasestationClient(object):
             self.close()
             return
 
-    def write_result(self, receive_timestamp, address, ecef, ecef_cov):
+    def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
         try:
             lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
 

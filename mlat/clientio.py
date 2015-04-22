@@ -564,42 +564,44 @@ class JsonClient(connection.Connection):
 
     # one of these is assigned to report_mlat_position:
     def report_mlat_position_discard(self, receiver,
-                                     icao, utc, ecef, ecef_cov, nstations):
+                                     receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
         # client is not interested
         pass
 
     def report_mlat_position_old(self, receiver,
-                                 icao, utc, ecef, ecef_cov, nstations):
+                                 receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
         # old client, use the old format (somewhat incomplete)
         lat, lon, alt = geodesy.ecef2llh(ecef)
-        self.send(result={'@': round(utc, 3),
-                          'addr': '{0:06x}'.format(icao),
+        ac = self.coordinator.tracker.aircraft[address]
+        callsign = ac.callsign
+        squawk = ac.squawk
+
+        self.send(result={'@': round(receive_timestamp, 3),
+                          'addr': '{0:06x}'.format(address),
                           'lat': round(lat, 4),
                           'lon': round(lon, 4),
                           'alt': round(alt * MTOF, 0),
-                          'callsign': None,
-                          'squawk': None,
+                          'callsign': callsign,
+                          'squawk': squawk,
                           'hdop': 0.0,
                           'vdop': 0.0,
                           'tdop': 0.0,
                           'gdop': 0.0,
-                          'nstations': nstations})
+                          'nstations': len(receivers)})
 
     def report_mlat_position_ecef(self, receiver,
-                                  icao, utc, ecef, ecef_cov, nstations):
+                                  receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
         # newer client
-        # ecef, cov rounded to ~10m precision
-        # cov is just the upper triangular part of the covariance matrix;
-        # the lower triangular part can be found by symmetry.
-        self.send(result={'@': round(utc, 3),
-                          'addr': '{0:06x}'.format(icao),
-                          'ecef': (round(ecef[0], -1),
-                                   round(ecef[1], -1),
-                                   round(ecef[2], -1)),
-                          'cov': (round(ecef_cov[0, 0], -2),
-                                  round(ecef_cov[0, 1], -2),
-                                  round(ecef_cov[0, 2], -2),
-                                  round(ecef_cov[1, 1], -2),
-                                  round(ecef_cov[1, 2], -2),
-                                  round(ecef_cov[2, 2], -2)),
-                          'nstat': nstations})
+        self.send(result={'@': round(receive_timestamp, 3),
+                          'addr': '{0:06x}'.format(address),
+                          'ecef': (round(ecef[0], 0),
+                                   round(ecef[1], 0),
+                                   round(ecef[2], 0)),
+                          'cov': (round(ecef_cov[0, 0], 0),
+                                  round(ecef_cov[0, 1], 0),
+                                  round(ecef_cov[0, 2], 0),
+                                  round(ecef_cov[1, 1], 0),
+                                  round(ecef_cov[1, 2], 0),
+                                  round(ecef_cov[2, 2], 0)),
+                          'n': len(receivers),
+                          'nd': distinct})

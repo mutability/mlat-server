@@ -5,7 +5,6 @@ import time
 import logging
 import operator
 import numpy
-import math
 
 import modes.message
 import mlat.config
@@ -140,20 +139,20 @@ class MlatTracker(object):
         ac.position = ecef
         ac.last_position_time = time.monotonic()
 
-        lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
-        glogger.info("Success! {a:06X} at {lat:.4f},{lon:.4f},{alt:.0f}  ({d}/{n} stations, {err:.0f}m error)".format(
-            a=decoded.address,
-            lat=lat,
-            lon=lon,
-            alt=alt*mlat.constants.MTOF,
-            n=len(cluster),
-            d=distinct,
-            err=math.sqrt(var_est)))
+        #lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
+        #glogger.info("Success! {a:06X} at {lat:.4f},{lon:.4f},{alt:.0f}  ({d}/{n} stations, {err:.0f}m error)".format(
+        #    a=decoded.address,
+        #    lat=lat,
+        #    lon=lon,
+        #    alt=alt*mlat.constants.MTOF,
+        #    n=len(cluster),
+        #    d=distinct,
+        #    err=math.sqrt(var_est)))
 
         for handler in self.coordinator.output_handlers:
-            handler(group.first_seen, decoded.address, ecef, ecef_cov)
-
-        # XXX report it
+            handler(group.first_seen, decoded.address,
+                    ecef, ecef_cov,
+                    [receiver for receiver, timestamp, error in cluster], distinct)
 
 
 def _cluster_timestamps(component):
