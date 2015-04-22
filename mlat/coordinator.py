@@ -188,7 +188,7 @@ failure.
 
     def receiver_clock_reset(self, receiver):
         """Reset current clock synchronization for a receiver."""
-        pass
+        self.clock_tracker.receiver_clock_reset(receiver)
 
     def receiver_rate_report(self, receiver, report):
         """Process an ADS-B position rate report for a receiver."""

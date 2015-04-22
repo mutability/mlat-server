@@ -74,6 +74,18 @@ class ClockTracker(object):
         for k in prune:
             del self.clock_pairs[k]
 
+    def receiver_clock_reset(self, receiver):
+        """
+        Called by the coordinator when we should drop our clock sync
+        state for a given receiver. This happens on input disconnect/
+        reconnect.
+
+        (This is actually the same work as receiver_disconnect for the moment)
+        """
+        for k in list(self.clock_pairs.keys()):
+            if k[0] is receiver or k[1] is receiver:
+                del self.clock_pairs[k]
+
     def receiver_disconnect(self, receiver):
         """
         Called by the coordinator when a receiver disconnects.
