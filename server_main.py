@@ -16,9 +16,10 @@ def stop_event_loop(msg, loop):
     loop.stop()
 
 
-def main(tcp_port, udp_port, motd, bind_address, basestation_connect, basestation_listen):
+def main(tcp_port, udp_port, motd, bind_address, basestation_connect, basestation_listen, csv_files):
     loop = asyncio.get_event_loop()
 
+    csv_file_handlers = []
     net_handlers = []
 
     coordinator = mlat.coordinator.Coordinator()
@@ -38,6 +39,10 @@ def main(tcp_port, udp_port, motd, bind_address, basestation_connect, basestatio
                                                                   port=port,
                                                                   coordinator=coordinator))
 
+    for filename in csv_files:
+        csv_file_handlers.append(mlat.output.LocalCSVWriter(coordinator=coordinator,
+                                                            filename=filename))
+
     if net_handlers:
         loop.run_until_complete(asyncio.wait([x.start() for x in net_handlers]))
 
@@ -48,6 +53,8 @@ def main(tcp_port, udp_port, motd, bind_address, basestation_connect, basestatio
         loop.run_forever()  # Well, until stop() is called anyway!
 
     finally:
+        for h in csv_file_handlers:
+            h.close()
         for h in net_handlers:
             h.close()
         server.close()
@@ -91,6 +98,12 @@ def argparser():
     parser.add_argument('--udp-port',
                         help="Port to accept UDP datagram traffic on.",
                         type=int)
+
+    parser.add_argument('--write-csv',
+                        help="CSV file path to write results to",
+                        action='append',
+                        default=[])
+
     parser.add_argument('--basestation-connect',
                         help="Connect to a host:port and send Basestation-format output there",
                         action='append',
@@ -116,4 +129,5 @@ if __name__ == '__main__':
          bind_address=args.bind_address,
          basestation_connect=args.basestation_connect,
          basestation_listen=args.basestation_listen,
+         csv_files=args.write_csv,
          motd=args.motd)

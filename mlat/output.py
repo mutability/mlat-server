@@ -6,6 +6,7 @@ import time
 import math
 import functools
 import socket
+import numpy
 
 import mlat.constants
 import mlat.geodesy
@@ -28,6 +29,69 @@ def csv_quote(s):
         return s
     else:
         return '"' + s.replace('"', '""') + '"'
+
+
+class LocalCSVWriter(object):
+    """Writes multilateration results to a local CSV file"""
+
+    TEMPLATE = '{t:.3f},{address:06X},{callsign},{squawk},{lat:.4f},{lon:.4f},{alt:.0f},{err:.0f},{n},{d},{receivers}\n'
+
+    def __init__(self, coordinator, filename):
+        self.logger = logging.getLogger("csv")
+        self.coordinator = coordinator
+        self.filename = filename
+        self.f = open(filename, 'a')
+        self.coordinator.add_output_handler(self.write_result)
+        self.coordinator.add_sighup_handler(self.reopen)
+
+    def close(self):
+        self.coordinator.remove_output_handler(self.write_result)
+        self.coordinator.remove_sighup_handler(self.reopen)
+        self.f.close()
+
+    def reopen(self):
+        try:
+            self.f.close()
+            self.f = open(self.filename, 'a')
+            self.logger.info("Reopened {filename}".format(filename=self.filename))
+        except Exception:
+            self.logger.exception("Failed to reopen {filename}".format(filename=self.filename))
+
+    def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
+        try:
+            lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
+
+            ac = self.coordinator.tracker.aircraft[address]
+            callsign = ac.callsign
+            squawk = ac.squawk
+
+            if ecef_cov is None:
+                err_est = -1
+            else:
+                var_est = numpy.sum(numpy.diagonal(ecef_cov))
+                if var_est >= 0:
+                    err_est = math.sqrt(var_est)
+                else:
+                    err_est = -1
+
+            line = self.TEMPLATE.format(
+                t=receive_timestamp,
+                address=address,
+                callsign=csv_quote(callsign),
+                squawk=csv_quote(squawk),
+                lat=lat,
+                lon=lon,
+                alt=alt * mlat.constants.MTOF,
+                err=err_est,
+                n=len(receivers),
+                d=distinct,
+                receivers=csv_quote(','.join([receiver.user for receiver in receivers])))
+
+            self.f.write(line)
+
+        except Exception:
+            self.logger.exception("Failed to write result")
+            # swallow the exception so we don't affect our caller
 
 
 class ConnectionLogger(logging.LoggerAdapter):
