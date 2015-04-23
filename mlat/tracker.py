@@ -70,15 +70,22 @@ class Tracker(object):
 
             ac.tracking.discard(receiver)
             receiver.tracking.discard(ac)
+            if not ac.tracking:
+                del self.aircraft[icao]
 
     def remove_all(self, receiver):
         for icao in receiver.tracking:
             ac = self.aircraft.get(icao)
             if ac:
                 ac.tracking.discard(receiver)
+                ac.sync_interest.discard(receiver)
+                ac.mlat_interest.discard(receiver)
+                if not ac.tracking:
+                    del self.aircraft[icao]
 
         receiver.tracking.clear()
-        receiver.update_interest_sets(set(), set())
+        receiver.sync_interest.clear()
+        receiver.mlat_interest.clear()
 
     def update_interest(self, receiver):
         """Update the interest sets of one receiver based on the
