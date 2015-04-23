@@ -10,13 +10,15 @@ import mlat.coordinator
 import mlat.net
 import mlat.output
 
+import mlat.leakcheck
+
 
 def stop_event_loop(msg, loop):
     logging.info(msg)
     loop.stop()
 
 
-def main(tcp_port, udp_port, motd, bind_address, basestation_connect, basestation_listen, csv_files):
+def main(tcp_port, udp_port, motd, bind_address, basestation_connect, basestation_listen, csv_files, check_leaks):
     loop = asyncio.get_event_loop()
 
     csv_file_handlers = []
@@ -48,6 +50,9 @@ def main(tcp_port, udp_port, motd, bind_address, basestation_connect, basestatio
 
     #loop.add_signal_handler(signal.SIGINT, stop_event_loop, "Halting on SIGINT", loop)
     loop.add_signal_handler(signal.SIGTERM, stop_event_loop, "Halting on SIGTERM", loop)
+
+    if check_leaks:
+        mlat.leakcheck.start_leak_checks()
 
     try:
         loop.run_forever()  # Well, until stop() is called anyway!
@@ -116,6 +121,13 @@ def argparser():
                         type=port_or_hostport,
                         default=[])
 
+    parser.add_argument('--no-check-leaks',
+                        help="Don't run the memory leakchecker",
+                        dest='check_leaks',
+                        action='store_const',
+                        const=False,
+                        default=True)
+
     return parser
 
 if __name__ == '__main__':
@@ -132,4 +144,5 @@ if __name__ == '__main__':
          basestation_connect=args.basestation_connect,
          basestation_listen=args.basestation_listen,
          csv_files=args.write_csv,
-         motd=args.motd)
+         motd=args.motd,
+         check_leaks=args.check_leaks)
