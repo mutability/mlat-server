@@ -144,12 +144,13 @@ class ClockTracker(object):
         interval = (tB - tA) / receiver.clock.freq
 
         # do we have a suitable existing match?
-        syncpointlist = self.sync_points.setdefault(key, [])
-        for candidate in syncpointlist:
-            if abs(candidate.interval - interval) < 1e-3:
-                # interval matches within 1ms, close enough.
-                self._add_to_existing_syncpoint(candidate, receiver, tA, tB)
-                return
+        syncpointlist = self.sync_points.get(key)
+        if syncpointlist:
+            for candidate in syncpointlist:
+                if abs(candidate.interval - interval) < 1e-3:
+                    # interval matches within 1ms, close enough.
+                    self._add_to_existing_syncpoint(candidate, receiver, tA, tB)
+                    return
 
         # No existing match. Validate the messages and maybe create a new sync point
 
@@ -219,7 +220,8 @@ class ClockTracker(object):
             syncpoint = SyncPoint(even_message.address, odd_ecef, even_ecef, interval)
 
         syncpoint.receivers.append([receiver, tA, tB, False])
-
+        if not syncpointlist:
+            syncpointlist = self.sync_points[key] = []
         syncpointlist.append(syncpoint)
 
         # schedule cleanup of the syncpoint after 2 seconds -
