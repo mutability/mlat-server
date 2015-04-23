@@ -16,7 +16,7 @@ from . import connection
 from .constants import MTOF
 
 
-glogger = logging.getLogger("clientio")
+glogger = logging.getLogger("client")
 
 
 class JsonClientListener(object):
@@ -69,7 +69,6 @@ def start_client_listener(tcp_port, udp_port, coordinator, motd, bind_address, l
 
 def start_json_client(r, w, **kwargs):
     host, port = w.transport.get_extra_info('peername')
-    glogger.info('Accepted new client connection from %s:%d', host, port)
     client = JsonClient(r, w, **kwargs)
     client.start()
 
@@ -136,12 +135,19 @@ class PackedMlatServerProtocol(asyncio.DatagramProtocol):
             pass
 
 
+class TaggingLogger(logging.LoggerAdapter):
+    def process(self, msg, kwargs):
+        if 'tag' in self.extra:
+            return ('[{tag}] {0}'.format(msg, **self.extra), kwargs)
+        else:
+            return (msg, kwargs)
+
+
 class JsonClient(connection.Connection):
     write_heartbeat_interval = 30.0
     read_heartbeat_interval = 150.0
 
     def __init__(self, reader, writer, *, coordinator, listener, motd):
-        self.logger = glogger
         self.r = reader
         self.w = writer
         self.coordinator = coordinator
@@ -151,6 +157,9 @@ class JsonClient(connection.Connection):
         self.transport = writer.transport
         self.host, self.port = self.transport.get_extra_info('peername')
         self.udp_protocol = listener.udp_protocol
+
+        self.logger = TaggingLogger(glogger, {'tag': '{host}:{port}'.format(host=self.host,
+                                                                            port=self.port)})
 
         self.receiver = None
 
@@ -257,6 +266,8 @@ class JsonClient(connection.Connection):
         This coroutine's task is stashed as self.read_task; cancelling this
         task will cause the client connection to be closed and cleaned up."""
 
+        self.logger.info("Accepted new client connection")
+
         try:
             hs = yield from asyncio.wait_for(self.r.readline(), timeout=30.0)
             if not self.process_handshake(hs):
@@ -293,7 +304,6 @@ class JsonClient(connection.Connection):
                     raise ValueError('Unsupported version in handshake')
 
                 user = str(hs['user'])
-                self.logger = logging.getLogger("clientio.{user}".format(user=user))
 
                 peer_compression_methods = set(hs['compress'])
                 self.compress = None
@@ -375,7 +385,13 @@ class JsonClient(connection.Connection):
                                          self._udp_key)
 
         self.write_raw(**response)
-        self.logger.info("Handshake successful.")
+        self.logger.info("Handshake successful ({user} {clock_type} {cversion} {udp} {compress})".format(
+            user=user,
+            cversion=hs.get("client_version", "unknown"),
+            udp="udp" if self._udp_key else "tcp",
+            clock_type=clock_type,
+            compress=self.compress))
+        self.logger = TaggingLogger(glogger, {'tag': '{user}'.format(user=user)})
         return True
 
     def write_raw(self, **kwargs):
