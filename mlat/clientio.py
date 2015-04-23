@@ -620,4 +620,9 @@ class JsonClient(connection.Connection):
                              round(ecef_cov[1, 1], 0),
                              round(ecef_cov[1, 2], 0),
                              round(ecef_cov[2, 2], 0))
+        else:
+            # work around a client bug in 0.1.7 which will
+            # disconnect if the 'cov' key is missing
+            result['cov'] = None
+
         self.send(result=result)
