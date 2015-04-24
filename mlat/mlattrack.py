@@ -52,7 +52,9 @@ class MlatTracker(object):
 
         decoded = modes.message.decode(group.message)
 
-        ac = self.tracker.aircraft[decoded.address]
+        ac = self.tracker.aircraft.get(decoded.address)
+        if not ac:
+            return
 
         # When we've seen a few copies of the same message, it's
         # probably correct. Update the tracker with newly seen
