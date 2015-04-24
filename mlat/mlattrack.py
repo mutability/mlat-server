@@ -56,12 +56,14 @@ class MlatTracker(object):
         if not ac:
             return
 
+        now = time.monotonic()
+
         # When we've seen a few copies of the same message, it's
         # probably correct. Update the tracker with newly seen
         # altitudes, squawks, callsigns.
         if decoded.altitude is not None:
             ac.altitude = decoded.altitude
-            ac.last_altitude_time = time.monotonic()
+            ac.last_altitude_time = now
 
         if decoded.squawk is not None:
             ac.squawk = decoded.squawk
@@ -69,8 +71,24 @@ class MlatTracker(object):
         if decoded.callsign is not None:
             ac.callsign = decoded.callsign
 
-        if ac.last_position_time is not None and time.monotonic() - ac.last_position_time < 2.0:
-            return  # ratelimit to one position per 2 seconds
+        # find old result, if present
+        if ac.last_result_position is None or (now - ac.last_result_time) > 120:
+            last_result_position = None
+            last_result_var = 1e9
+            last_result_distinct = 0
+            elapsed = 120
+        else:
+            last_result_position = ac.last_result_position
+            last_result_var = ac.last_result_var
+            last_result_distinct = ac.last_result_distinct
+            elapsed = now - ac.last_result_time
+
+        # find altitude
+        if ac.altitude is None:
+            return
+        if now - ac.last_altitude_time > 30.0:
+            return
+        altitude = ac.altitude * mlat.constants.FTOM
 
         # construct a map of receiver -> list of timestamps
         timestamp_map = {}
@@ -79,6 +97,13 @@ class MlatTracker(object):
 
         # need 3 separate receivers at a bare minimum for multilateration
         if len(timestamp_map) < 3:
+            return
+
+        # basic ratelimit before we do more work
+        if elapsed < 15.0 and len(timestamp_map) < last_result_distinct:
+            return
+
+        if elapsed < 2.0 and len(timestamp_map) == last_result_distinct:
             return
 
         # normalize timestamps. This returns a list of timestamp maps;
@@ -96,50 +121,57 @@ class MlatTracker(object):
         if not clusters:
             return
 
-        # find altitude
-        if decoded.altitude is not None:
-            altitude = decoded.altitude
-        else:
-            if ac.altitude is None:
-                return
-            if time.monotonic() - ac.last_altitude_time > 30.0:
-                return
-            altitude = ac.altitude
-
-        # Convert to meters
-        altitude = altitude * mlat.constants.FTOM
-
-        # If we have a recent position use that as the starting point for the solver.
-        # Otherwise, we will fall back to using the closest station.
-        if ac.position is None or time.monotonic() > ac.last_position_time > 120:
-            position = None
-        else:
-            position = ac.position
-
         # start from the largest cluster
         result = None
         clusters.sort(key=operator.itemgetter(0))
         while clusters and not result:
             distinct, cluster = clusters.pop()
+
+            # accept fewer receivers after 10s
+            # accept the same number of receivers after MLAT_DELAY - 0.5s
+            # accept more receivers immediately
+
+            if elapsed < 10.0 and distinct < last_result_distinct:
+                break
+
+            if elapsed < (mlat.config.MLAT_DELAY - 0.5) and distinct == last_result_distinct:
+                break
+
             cluster.sort(key=operator.itemgetter(1))  # sort by increasing timestamp (todo: just assume descending..)
-            r = mlat.solver.solve(cluster, altitude, position if position else cluster[0][0].position)
+            r = mlat.solver.solve(cluster, altitude,
+                                  last_result_position if last_result_position else cluster[0][0].position)
             if r:
                 # estimate the error
                 ecef, ecef_cov = r
                 if ecef_cov is not None:
-                    var_est = numpy.sum(numpy.diagonal(ecef_cov))
+                    var_est = numpy.trace(ecef_cov)
                 else:
-                    var_est = 0
+                    # this result is suspect
+                    var_est = 100e6
 
-                if var_est < 100e6:
-                    result = r
+                if var_est > 100e6:
+                    # more than 10km, too inaccurate
+                    continue
+
+                if elapsed < 2.0 and var_est > last_result_var * 1.1:
+                    # less accurate than a recent position
+                    continue
+
+                if elapsed < 10.0 and var_est > last_result_var * 2.25:
+                    # much less accurate than a recent-ish position
+                    continue
+
+                # accept it
+                result = r
 
         if not result:
             return
 
         ecef, ecef_cov = result
-        ac.position = ecef
-        ac.last_position_time = time.monotonic()
+        ac.last_result_position = ecef
+        ac.last_result_var = var_est
+        ac.last_result_distinct = distinct
+        ac.last_result_time = now
 
         #lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
         #glogger.info("Success! {a:06X} at {lat:.4f},{lon:.4f},{alt:.0f}  ({d}/{n} stations, {err:.0f}m error)".format(

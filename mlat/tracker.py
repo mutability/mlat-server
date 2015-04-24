@@ -29,10 +29,14 @@ class TrackedAircraft(object):
         # time of last altitude (time.monotonic())
         self.last_altitude_time = None
 
-        # last computed position (for multilaterated aircraft), ECEF
-        self.position = None
-        # time of last position (time.monotonic())
-        self.last_position_time = None
+        # last multilateration, time (monotonic)
+        self.last_result_time = None
+        # last multilateration, ECEF position
+        self.last_result_position = None
+        # last multilateration, variance
+        self.last_result_var = None
+        # last multilateration, distinct receivers
+        self.last_result_distinct = None
 
         self.callsign = None
         self.squawk = None
