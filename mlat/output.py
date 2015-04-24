@@ -132,8 +132,9 @@ class BasestationClient(object):
         self.writer.close()
         self.writer = None
 
+    @asyncio.coroutine
     def wait_closed(self):
-        return asyncio.wait([self.heartbeat_task, self.reader_task])
+        yield from mlat.util.safe_wait([self.heartbeat_task, self.reader_task])
 
     @asyncio.coroutine
     def read_until_eof(self):
