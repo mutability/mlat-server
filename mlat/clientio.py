@@ -453,7 +453,7 @@ class JsonClient(connection.Connection):
             if not line:
                 return
             self._last_message_time = time.monotonic()
-            yield from self.process_message(line)
+            self.process_message(line.decode('ascii'))
 
     @asyncio.coroutine
     def handle_zlib_messages(self):
