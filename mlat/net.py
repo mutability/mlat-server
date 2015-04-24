@@ -4,17 +4,19 @@ import asyncio
 import logging
 import socket
 
+import mlat.util
+
 
 glogger = logging.getLogger("net")
 
 
 class MonitoringListener(object):
-    def __init__(self, host, port, factory, *factory_args):
+    def __init__(self, host, port, factory, logger=glogger):
+        self.logger = logger
         self.started = False
         self.host = host
         self.port = port
         self.factory = factory
-        self.factory_args = factory_args
         self.tcp_server = None
         self.clients = []
         self.monitoring = []
@@ -22,20 +24,38 @@ class MonitoringListener(object):
     @asyncio.coroutine
     def start(self):
         if not self.started:
-            self.tcp_server = yield from asyncio.start_server(self.start_client,
-                                                              host=self.host,
-                                                              port=self.port)
+            yield from self._start()
             self.started = True
-
-            for s in self.tcp_server.sockets:
-                name = s.getsockname()
-                glogger.info("Listening on {host}:{port}".format(host=name[0],
-                                                                 port=name[1]))
 
         return self
 
+    # override as needed:
+
+    @asyncio.coroutine
+    def _start(self):
+        self.tcp_server = yield from asyncio.start_server(self.start_client,
+                                                          host=self.host,
+                                                          port=self.port)
+        for s in self.tcp_server.sockets:
+            name = s.getsockname()
+            self.logger.info("{what} listening on {host}:{port} (TCP)".format(host=name[0],
+                                                                              port=name[1],
+                                                                              what=self.__class__.__name__))
+
+    def _new_client(self, r, w):
+        return self.factory(r, w)
+
+    def _close(self):
+        if self.tcp_server:
+            self.tcp_server.close()
+        for client in self.clients:
+            client.close()
+        self.clients.clear()
+
+    # shouldn't need modifying:
+
     def start_client(self, r, w):
-        newclient = self.factory(r, w, *self.factory_args)
+        newclient = self._new_client(r, w)
         self.clients.append(newclient)
         self.monitoring.append(asyncio.async(self.monitor_client(newclient)))
 
@@ -50,37 +70,35 @@ class MonitoringListener(object):
             return
 
         self.started = False
-        self.tcp_server.close()
+        self._close()
 
         for m in self.monitoring:
             m.cancel()
+        self.monitoring.clear()
 
+    @asyncio.coroutine
     def wait_closed(self):
-        return asyncio.wait([self.tcp_server.wait_closed()] + self.monitoring)
+        yield from mlat.util.safe_wait(self.monitoring)
+        if self.tcp_server:
+            yield from self.tcp_server.wait_closed()
 
 
 class MonitoringConnector(object):
-    def __init__(self, host, port, reconnect_interval, factory, *factory_args):
+    def __init__(self, host, port, reconnect_interval, factory):
         self.started = False
         self.host = host
         self.port = port
         self.reconnect_interval = reconnect_interval
         self.factory = factory
-        self.factory_args = factory_args
         self.reconnect_task = None
         self.client = None
 
-    # returns a future for consistency with MonitoringListener.start()
     def start(self):
-        f = asyncio.Future()
-        f.set_result(self)
+        if not self.started:
+            self.started = True
+            self.reconnect_task = asyncio.async(self.reconnect())
 
-        if self.started:
-            return f
-
-        self.started = True
-        self.reconnect_task = asyncio.async(self.reconnect())
-        return f
+        return mlat.util.completed_future
 
     @asyncio.coroutine
     def reconnect(self):
@@ -91,7 +109,7 @@ class MonitoringConnector(object):
                 yield from asyncio.sleep(self.reconnect_interval)
                 continue
 
-            self.client = self.factory(reader, writer, *self.factory_args)
+            self.client = self.factory(reader, writer)
             yield from self.client.wait_closed()
             self.client = None
             yield from asyncio.sleep(self.reconnect_interval)
@@ -105,8 +123,8 @@ class MonitoringConnector(object):
         if self.client:
             self.client.close()
 
+    @asyncio.coroutine
     def wait_closed(self):
-        waitlist = [self.reconnect_task]
+        yield from mlat.util.safe_wait([self.reconnect_task])
         if self.client:
-            waitlist.append(self.client.wait_closed())
-        return asyncio.wait(waitlist)
+            yield from self.client.wait_closed()

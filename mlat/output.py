@@ -10,6 +10,7 @@ import numpy
 
 import mlat.constants
 import mlat.geodesy
+import mlat.util
 
 # various output methods for multilateration results
 
@@ -44,10 +45,16 @@ class LocalCSVWriter(object):
         self.coordinator.add_output_handler(self.write_result)
         self.coordinator.add_sighup_handler(self.reopen)
 
+    def start(self):
+        return mlat.util.completed_future
+
     def close(self):
         self.coordinator.remove_output_handler(self.write_result)
         self.coordinator.remove_sighup_handler(self.reopen)
         self.f.close()
+
+    def wait_closed(self):
+        return mlat.util.completed_future
 
     def reopen(self):
         try:
@@ -94,11 +101,6 @@ class LocalCSVWriter(object):
             # swallow the exception so we don't affect our caller
 
 
-class ConnectionLogger(logging.LoggerAdapter):
-    def process(self, msg, kwargs):
-        return ('[{host}:{port}] {0}'.format(msg, **self.extra), kwargs)
-
-
 class BasestationClient(object):
     TEMPLATE = 'MSG,{mtype},1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}\n'  # noqa
 
@@ -106,7 +108,9 @@ class BasestationClient(object):
         peer = writer.get_extra_info('peername')
         self.host = peer[0]
         self.port = peer[1]
-        self.logger = ConnectionLogger(logging.getLogger("basestation"), {'host': self.host, 'port': self.port})
+        self.logger = mlat.util.TaggingLogger(logging.getLogger("basestation"),
+                                              {'tag': '{host}:{port}'.format(host=self.host,
+                                                                             port=self.port)})
         self.reader = reader
         self.writer = writer
         self.coordinator = coordinator

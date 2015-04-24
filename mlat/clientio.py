@@ -8,69 +8,57 @@ import struct
 import time
 import random
 import socket
-import functools
 
-from . import util
-from . import geodesy
-from . import connection
-from .constants import MTOF
+import mlat.net
+import mlat.util
+import mlat.geodesy
+import mlat.connection
+import mlat.constants
 
 
 glogger = logging.getLogger("client")
 
 
-class JsonClientListener(object):
-    def __init__(self):
-        self.tcp_server = None
+class JsonClientListener(mlat.net.MonitoringListener):
+    def __init__(self, host, tcp_port, udp_port, motd, coordinator):
+        super().__init__(host, tcp_port, None, logger=glogger)
+        self.coordinator = coordinator
+        self.udp_port = udp_port
+        self.motd = motd
+
         self.udp_transport = None
         self.udp_protocol = None
         self.clients = []
 
-    def close(self):
-        self.tcp_server.close()
+    @asyncio.coroutine
+    def _start(self):
+        if self.udp_port:
+            # asyncio's UDP binding is a bit strange (and different to TCP):
+            # a host of None will bind to 127.0.0.1, not the wildcard address.
+            bind_address = self.host if self.host else '0.0.0.0'
+            dgram_coro = asyncio.get_event_loop().create_datagram_endpoint(protocol_factory=PackedMlatServerProtocol,
+                                                                           family=socket.AF_INET,
+                                                                           local_addr=(bind_address, self.udp_port))
+            self.udp_transport, self.udp_protocol = (yield from dgram_coro)
+            name = self.udp_transport.get_extra_info('sockname')
+            self.logger.info("{what} listening on {host}:{port} (UDP)".format(host=name[0],
+                                                                              port=name[1],
+                                                                              what=self.__class__.__name__))
+
+        yield from super()._start()
+
+    def _new_client(self, r, w):
+        return JsonClient(r, w,
+                          coordinator=self.coordinator,
+                          motd=self.motd,
+                          udp_protocol=self.udp_protocol,
+                          udp_host=self.host,
+                          udp_port=self.udp_port)
+
+    def _close(self):
+        super()._close()
         if self.udp_transport:
             self.udp_transport.abort()
-        for client in list(self.clients):  # take a copy, close will modify the list
-            client.close()
-
-    def wait_closed(self):
-        waitlist = [asyncio.async(client.wait_closed()) for client in self.clients]
-        waitlist.append(self.tcp_server.wait_closed())
-        return asyncio.wait(waitlist)
-
-
-@asyncio.coroutine
-def start_client_listener(tcp_port, udp_port, coordinator, motd, bind_address, loop=None):
-    if loop is None:
-        loop = asyncio.get_event_loop()
-
-    listener = JsonClientListener()
-
-    if udp_port:
-        dgram_coro = loop.create_datagram_endpoint(protocol_factory=PackedMlatServerProtocol,
-                                                   family=socket.AF_INET,
-                                                   local_addr=(bind_address, udp_port))
-        listener.udp_transport, listener.udp_protocol = (yield from dgram_coro)
-
-    listener.tcp_server = (yield from asyncio.start_server(functools.partial(start_json_client,
-                                                                             listener=listener,
-                                                                             coordinator=coordinator,
-                                                                             motd=motd),
-                                                           family=socket.AF_INET,
-                                                           host=bind_address,
-                                                           port=tcp_port))
-
-    glogger.info("Listening for TCP connections on {}".format(listener.tcp_server.sockets[0].getsockname()))
-    if udp_port:
-        glogger.info("Listening for UDP datagrams on {}".format(listener.udp_transport.get_extra_info('sockname')))
-
-    return listener
-
-
-def start_json_client(r, w, **kwargs):
-    host, port = w.transport.get_extra_info('peername')
-    client = JsonClient(r, w, **kwargs)
-    client.start()
 
 
 class PackedMlatServerProtocol(asyncio.DatagramProtocol):
@@ -135,31 +123,25 @@ class PackedMlatServerProtocol(asyncio.DatagramProtocol):
             pass
 
 
-class TaggingLogger(logging.LoggerAdapter):
-    def process(self, msg, kwargs):
-        if 'tag' in self.extra:
-            return ('[{tag}] {0}'.format(msg, **self.extra), kwargs)
-        else:
-            return (msg, kwargs)
-
-
-class JsonClient(connection.Connection):
+class JsonClient(mlat.connection.Connection):
     write_heartbeat_interval = 30.0
     read_heartbeat_interval = 150.0
 
-    def __init__(self, reader, writer, *, coordinator, listener, motd):
+    def __init__(self, reader, writer, *, coordinator, motd, udp_protocol, udp_host, udp_port):
         self.r = reader
         self.w = writer
         self.coordinator = coordinator
-        self.listener = listener
         self.motd = motd
 
         self.transport = writer.transport
         self.host, self.port = self.transport.get_extra_info('peername')
-        self.udp_protocol = listener.udp_protocol
+        self.udp_protocol = udp_protocol
+        self.udp_host = udp_host
+        self.udp_port = udp_port
 
-        self.logger = TaggingLogger(glogger, {'tag': '{host}:{port}'.format(host=self.host,
-                                                                            port=self.port)})
+        self.logger = mlat.util.TaggingLogger(glogger,
+                                              {'tag': '{host}:{port}'.format(host=self.host,
+                                                                             port=self.port)})
 
         self.receiver = None
 
@@ -182,18 +164,12 @@ class JsonClient(connection.Connection):
         self._requested_traffic = set()
         self._wanted_traffic = set()
 
-    def start(self):
-        self.listener.clients.append(self)
+        # start!
         self._read_task = asyncio.async(self.handle_connection())
 
     def close(self):
         if not self.transport:
             return  # already closed
-
-        try:
-            self.listener.clients.remove(self)
-        except ValueError:
-            pass
 
         self.logger.info('Disconnected')
         self.send = self.write_discard  # suppress all output from hereon in
@@ -220,14 +196,7 @@ class JsonClient(connection.Connection):
 
     @asyncio.coroutine
     def wait_closed(self):
-        waitlist = []
-        if self._read_task:
-            waitlist.append(self._read_task)
-        if self._heartbeat_task:
-            waitlist.append(self._heartbeat_task)
-
-        if waitlist:
-            yield from asyncio.wait(waitlist)
+        yield from mlat.util.safe_wait([self._read_task, self._heartbeat_task])
 
     @asyncio.coroutine
     def handle_heartbeats(self):
@@ -366,11 +335,11 @@ class JsonClient(connection.Connection):
 
         if deny:
             self.logger.info('Handshake failed: %s', deny)
-            self.write_raw(deny=[deny], reconnect_in=util.fuzzy(900))
+            self.write_raw(deny=[deny], reconnect_in=mlat.util.fuzzy(900))
             return False
 
         response = {"compress": self.compress,
-                    "reconnect_in": util.fuzzy(15),
+                    "reconnect_in": mlat.util.fuzzy(15),
                     "selective_traffic": True,
                     "heartbeat": True,
                     "return_results": self.use_return_results,
@@ -380,8 +349,8 @@ class JsonClient(connection.Connection):
         if self.use_udp:
             self._udp_key = self.udp_protocol.add_client(sync_handler=self.process_sync,
                                                          mlat_handler=self.process_mlat)
-            response['udp_transport'] = (None,   # use same host as TCP
-                                         self.udp_protocol.listen_address[1],
+            response['udp_transport'] = (self.udp_host,
+                                         self.udp_port,
                                          self._udp_key)
 
         self.write_raw(**response)
@@ -391,7 +360,7 @@ class JsonClient(connection.Connection):
             udp="udp" if self._udp_key else "tcp",
             clock_type=clock_type,
             compress=self.compress))
-        self.logger = TaggingLogger(glogger, {'tag': '{user}'.format(user=user)})
+        self.logger = mlat.util.TaggingLogger(glogger, {'tag': '{user}'.format(user=user)})
         return True
 
     def write_raw(self, **kwargs):
@@ -585,7 +554,7 @@ class JsonClient(connection.Connection):
     def report_mlat_position_old(self, receiver,
                                  receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
         # old client, use the old format (somewhat incomplete)
-        lat, lon, alt = geodesy.ecef2llh(ecef)
+        lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
         ac = self.coordinator.tracker.aircraft[address]
         callsign = ac.callsign
         squawk = ac.squawk
@@ -594,7 +563,7 @@ class JsonClient(connection.Connection):
                           'addr': '{0:06x}'.format(address),
                           'lat': round(lat, 4),
                           'lon': round(lon, 4),
-                          'alt': round(alt * MTOF, 0),
+                          'alt': round(alt * mlat.constants.MTOF, 0),
                           'callsign': callsign,
                           'squawk': squawk,
                           'hdop': 0.0,

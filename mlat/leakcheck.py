@@ -1,6 +1,6 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
-# uses objgraph (and adapts some code from it), which has licence:
+# Derived from (and uses) objgraph, which has licence:
 
 # Copyright (c) 2008-2015 Marius Gedminas <marius@pov.lt> and contributors
 # Released under the MIT licence.
@@ -28,61 +28,75 @@ import gc
 import logging
 import operator
 
-glogger = logging.getLogger("leaks")
-
-
-def check_leaks(peak, suppress=False, limit=20):
-    stats = objgraph.typestats(shortnames=False)
-    deltas = {}
-    for name, count in stats.items():
-        old_count = peak.get(name, 0)
-        if count > old_count:
-            deltas[name] = count - old_count
-            peak[name] = count
-
-    deltas = sorted(deltas.items(), key=operator.itemgetter(1), reverse=True)
-    deltas = deltas[:limit]
-
-    if not suppress:
-        if deltas:
-            glogger.info("Peak memory usage change:")
-            width = max(len(name) for name, count in deltas)
-            for name, delta in deltas:
-                glogger.info('  %-*s%9d %+9d' % (width, name, stats[name], delta))
-
-
-def show_hogs(limit=20):
-    glogger.info("Top memory hogs:")
-    stats = objgraph.most_common_types(limit=limit, shortnames=False)
-    width = max(len(name) for name, count in stats)
-    for name, count in stats:
-        glogger.info('  %-*s %i' % (width, name, count))
-
-
-@asyncio.coroutine
-def leak_checker():
-    yield from asyncio.sleep(120.0)  # let startup settle
-
-    peak = {}
-    gc.collect()
-    check_leaks(peak, suppress=True)
-    while True:
-        try:
-            gc.collect()
-            show_hogs()
-            check_leaks(peak)
-        except Exception:
-            glogger.exception("leak checking failed")
-
-        yield from asyncio.sleep(3600.0)
-
+import mlat.util
 
 try:
     import objgraph
-
-    def start_leak_checks():
-        asyncio.async(leak_checker())
-
 except ImportError:
-    def start_leak_checks():
-        glogger.warning("Leak checking disabled (objgraph not available)")
+    objgraph = None
+
+
+class LeakChecker(object):
+    def __init__(self):
+        self.logger = logging.getLogger("leaks")
+        self._task = None
+        self.peak = {}
+
+    def start(self):
+        if objgraph is None:
+            self.logger.warning("Leak checking disabled (objgraph not available)")
+        else:
+            self._task = asyncio.async(self.checker())
+
+        return mlat.util.completed_future
+
+    def close(self):
+        if self._task:
+            self._task.cancel()
+
+    @asyncio.coroutine
+    def wait_closed(self):
+        yield from mlat.util.safe_wait([self._task])
+
+    @asyncio.coroutine
+    def checker(self):
+        yield from asyncio.sleep(120.0)  # let startup settle
+
+        gc.collect()
+        self.check_leaks(suppress=True)
+
+        while True:
+            yield from asyncio.sleep(3600.0)
+
+            try:
+                gc.collect()
+                self.show_hogs()
+                self.check_leaks()
+            except Exception:
+                self.logger.exception("leak checking failed")
+
+    def check_leaks(self, suppress=False, limit=20):
+        stats = objgraph.typestats(shortnames=False)
+        deltas = {}
+        for name, count in stats.items():
+            old_count = self.peak.get(name, 0)
+            if count > old_count:
+                deltas[name] = count - old_count
+                self.peak[name] = count
+
+        deltas = sorted(deltas.items(), key=operator.itemgetter(1), reverse=True)
+        deltas = deltas[:limit]
+
+        if not suppress:
+            if deltas:
+                self.logger.info("Peak memory usage change:")
+                width = max(len(name) for name, count in deltas)
+                for name, delta in deltas:
+                    self.logger.info('  %-*s%9d %+9d' % (width, name, stats[name], delta))
+
+    def show_hogs(self, limit=20):
+        self.logger.info("Top memory hogs:")
+        stats = objgraph.most_common_types(limit=limit, shortnames=False)
+        width = max(len(name) for name, count in stats)
+        for name, count in stats:
+            self.logger.info('  %-*s %i' % (width, name, count))
