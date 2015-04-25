@@ -126,11 +126,6 @@ class MlatServer(object):
         self.loop.stop()
 
     def run(self):
-        logging.basicConfig(level=logging.INFO,
-                            style='{',
-                            format='{asctime}.{msecs:03.0f}  {levelname:8s} {name:20s} {message}',
-                            datefmt='%Y%m%d %H:%M:%S')
-
         args = self.make_arg_parser().parse_args()
         subtasks = self.make_subtasks(args)
 
