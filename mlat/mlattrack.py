@@ -5,6 +5,7 @@ import time
 import logging
 import operator
 import numpy
+from contextlib import closing
 
 import modes.message
 import mlat.config
@@ -30,6 +31,21 @@ class MlatTracker(object):
         self.coordinator = coordinator
         self.tracker = coordinator.tracker
         self.clock_tracker = coordinator.clock_tracker
+        self.read_blacklist()
+        self.coordinator.add_sighup_handler(self.read_blacklist)
+
+    def read_blacklist(self):
+        s = set()
+        try:
+            with closing(open('mlat-blacklist.txt', 'r')) as f:
+                user = f.readline().strip()
+                if user:
+                    s.add(user)
+        except FileNotFoundError:
+            pass
+
+        glogger.info("Read {n} blacklist entries".format(n=len(s)))
+        self.blacklist = s
 
     def receiver_mlat(self, receiver, timestamp, message):
         # use message as key
@@ -93,7 +109,8 @@ class MlatTracker(object):
         # construct a map of receiver -> list of timestamps
         timestamp_map = {}
         for receiver, timestamp in group.copies:
-            timestamp_map.setdefault(receiver, []).append(timestamp)
+            if receiver.user not in self.blacklist:
+                timestamp_map.setdefault(receiver, []).append(timestamp)
 
         # need 3 separate receivers at a bare minimum for multilateration
         if len(timestamp_map) < 3:
