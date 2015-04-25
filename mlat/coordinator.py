@@ -19,12 +19,13 @@ class Receiver(object):
     """Represents a particular connected receiver and the associated
     connection that manages it."""
 
-    def __init__(self, user, connection, clock, position_llh):
+    def __init__(self, user, connection, clock, position_llh, privacy):
         self.user = user
         self.connection = connection
         self.clock = clock
         self.position_llh = position_llh
         self.position = mlat.geodesy.llh2ecef(position_llh)
+        self.privacy = privacy
         self.dead = False
 
         self.sync_count = 0
@@ -131,7 +132,8 @@ class Coordinator(object):
                 locations[r.user] = {
                     'lat': r.position_llh[0],
                     'lon': r.position_llh[1],
-                    'alt': r.position_llh[2]
+                    'alt': r.position_llh[2],
+                    'privacy': r.privacy
                 }
 
             with closing(open('sync.json', 'w')) as f:
@@ -147,7 +149,7 @@ class Coordinator(object):
     def wait_closed(self):
         mlat.util.safe_wait([self._write_state_task])
 
-    def new_receiver(self, connection, user, auth, position_llh, clock_type):
+    def new_receiver(self, connection, user, auth, position_llh, clock_type, privacy):
         """Assigns a new receiver ID for a given user.
         Returns the new receiver ID.
 
@@ -158,7 +160,8 @@ class Coordinator(object):
 
         clock = mlat.clocksync.make_clock(clock_type)
         receiver = Receiver(user, connection, clock,
-                            position_llh=position_llh)
+                            position_llh=position_llh,
+                            privacy=privacy)
 
         if self.authenticator is not None:
             self.authenticator(receiver, auth)  # may raise ValueError if authentication fails

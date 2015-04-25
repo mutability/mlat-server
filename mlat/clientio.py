@@ -340,7 +340,8 @@ class JsonClient(mlat.connection.Connection):
                                                               user=user,
                                                               auth=hs.get('auth'),
                                                               clock_type=clock_type,
-                                                              position_llh=(lat, lon, alt))
+                                                              position_llh=(lat, lon, alt),
+                                                              privacy=bool(hs.get('privacy', False)))
 
             except KeyError as e:
                 deny = 'Missing field in handshake: ' + str(e)
