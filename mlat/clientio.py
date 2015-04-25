@@ -65,11 +65,16 @@ class PackedMlatServerProtocol(asyncio.DatagramProtocol):
     TYPE_SYNC = 1
     TYPE_MLAT_SHORT = 2
     TYPE_MLAT_LONG = 3
+    TYPE_SSYNC = 4
+    TYPE_REBASE = 5
+    TYPE_ABS_SYNC = 6
 
     STRUCT_HEADER = struct.Struct(">IHQ")
     STRUCT_SYNC = struct.Struct(">ii14s14s")
     STRUCT_MLAT_SHORT = struct.Struct(">i7s")
     STRUCT_MLAT_LONG = struct.Struct(">i14s")
+    STRUCT_REBASE = struct.Struct(">Q")
+    STRUCT_ABS_SYNC = struct.Struct(">QQ14s14s")
 
     def __init__(self):
         self.clients = {}
@@ -114,8 +119,18 @@ class PackedMlatServerProtocol(asyncio.DatagramProtocol):
                     i += self.STRUCT_MLAT_LONG.size
                     mlat_handler(base + t, m)
 
+                elif typebyte == self.TYPE_REBASE:
+                    base, = self.STRUCT_REBASE.unpack_from(data, i)
+                    i += self.STRUCT_REBASE.size
+
+                elif typebyte == self.TYPE_ABS_SYNC:
+                    et, ot, em, om = self.STRUCT_ABS_SYNC.unpack_from(data, i)
+                    i += self.STRUCT_ABS_SYNC.size
+                    sync_handler(et, ot, em, om)
+
                 else:
-                    # bad data
+                    glogger.warn("bad UDP packet from {host}:{port}".format(host=addr[0],
+                                                                            port=addr[1]))
                     break
         except struct.error:
             pass
