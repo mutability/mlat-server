@@ -84,12 +84,12 @@ class Coordinator(object):
         """
 
         self.receivers = {}    # keyed by username
+        self.sighup_handlers = []
         self.authenticator = authenticator
         self.tracker = mlat.tracker.Tracker()
         self.clock_tracker = mlat.clocktrack.ClockTracker()
         self.mlat_tracker = mlat.mlattrack.MlatTracker(self)
         self.output_handlers = [self.forward_results]
-        self.sighup_handlers = []
 
     def start(self):
         self._write_state_task = asyncio.async(self.write_state())
