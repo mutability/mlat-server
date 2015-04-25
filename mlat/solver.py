@@ -1,6 +1,7 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
 import logging
+import math
 
 import scipy.optimize
 
@@ -40,7 +41,7 @@ def solve(measurements, altitude, initial_guess):
     measurements: a list of (receiver, timestamp, error) tuples. Should be sorted by timestamp.
       receiver.position should be the ECEF position of the receiver
       timestamp should be a reception time in seconds (with an arbitrary epoch)
-      error should be the estimated error in timestamp
+      variance should be the estimated variance of timestamp
     altitude: the reported altitude of the transmitter in _meters_
     initial_guess: an ECEF position to start the solver from
 
@@ -51,8 +52,8 @@ def solve(measurements, altitude, initial_guess):
     """
 
     base_timestamp = measurements[0][1]
-    pseudorange_data = [(receiver.position, (timestamp - base_timestamp) * Cair, error * Cair)
-                        for receiver, timestamp, error in measurements]
+    pseudorange_data = [(receiver.position, (timestamp - base_timestamp) * Cair, math.sqrt(variance) * Cair)
+                        for receiver, timestamp, variance in measurements]
     x_guess = [initial_guess[0], initial_guess[1], initial_guess[2], 0.0]
     x_est, cov_x, infodict, mesg, ler = scipy.optimize.leastsq(
         _residuals,
@@ -73,7 +74,7 @@ def solve(measurements, altitude, initial_guess):
             # implausible range offset to closest receiver
             return None
 
-        for receiver, timestamp, error in measurements:
+        for receiver, timestamp, variance in measurements:
             d = geodesy.ecef_distance(receiver.position, position_est)
             if d > mlat.config.MAX_RANGE:
                 # too far from this receiver

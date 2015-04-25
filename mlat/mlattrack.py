@@ -211,10 +211,10 @@ def _cluster_timestamps(component):
 
     # flatten the component into a list of tuples
     flat_component = []
-    for receiver, (error, timestamps) in component.items():
+    for receiver, (variance, timestamps) in component.items():
         for timestamp in timestamps:
             #glogger.info("  {r} {t:.1f}us {e:.1f}us".format(r=receiver.user, t=timestamp*1e6, e=error*1e6))
-            flat_component.append((receiver, timestamp, error))
+            flat_component.append((receiver, timestamp, variance))
 
     # sort by timestamp
     flat_component.sort(key=operator.itemgetter(1))
@@ -252,7 +252,7 @@ def _cluster_timestamps(component):
             #glogger.info("  0 = {r} {t:.1f}us".format(r=head[0].user, t=head[1]*1e6))
 
             for i in range(len(group) - 1, -1, -1):
-                receiver, timestamp, error = group[i]
+                receiver, timestamp, variance = group[i]
                 #glogger.info("  consider {i} = {r} {t:.1f}us".format(i=i, r=receiver.user, t=timestamp*1e6))
                 if (last_timestamp - timestamp) > 2e-3:
                     # Can't possibly be part of the same cluster.
@@ -265,7 +265,7 @@ def _cluster_timestamps(component):
 
                 # strict test for range, now.
                 is_distinct = can_cluster = True
-                for other_receiver, other_timestamp, other_error in cluster:
+                for other_receiver, other_timestamp, other_variance in cluster:
                     if other_receiver is receiver:
                         #glogger.info("   discard: duplicate receiver")
                         can_cluster = False

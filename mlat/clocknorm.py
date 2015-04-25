@@ -1,15 +1,14 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
-import math
 import pygraph.classes.graph
 import pygraph.algorithms.minmax
 
 
 class _Predictor(object):
     """Simple object for holding prediction state"""
-    def __init__(self, predict, error):
+    def __init__(self, predict, variance):
         self.predict = predict
-        self.error = error
+        self.variance = variance
 
 
 def _identity_predict(x):
@@ -31,21 +30,21 @@ def _make_predictors(clocktracker, station0, station1):
 
     if station0.clock.epoch is not None and station0.clock.epoch == station1.clock.epoch:
         # Assume clocks are closely synchronized to the epoch (and therefore to each other)
-        predictor = _Predictor(_identity_predict, math.sqrt(station0.clock.jitter ** 2 + station1.clock.jitter ** 2))
+        predictor = _Predictor(_identity_predict, station0.clock.jitter ** 2 + station1.clock.jitter ** 2)
         return (predictor, predictor)
 
     if station0 < station1:
         pairing = clocktracker.clock_pairs.get((station0, station1))
         if pairing is None or not pairing.valid:
             return None
-        return (_Predictor(pairing.predict_peer, pairing.error),
-                _Predictor(pairing.predict_base, pairing.error))
+        return (_Predictor(pairing.predict_peer, pairing.variance),
+                _Predictor(pairing.predict_base, pairing.variance))
     else:
         pairing = clocktracker.clock_pairs.get((station1, station0))
         if pairing is None or not pairing.valid:
             return None
-        return (_Predictor(pairing.predict_base, pairing.error),
-                _Predictor(pairing.predict_peer, pairing.error))
+        return (_Predictor(pairing.predict_base, pairing.variance),
+                _Predictor(pairing.predict_peer, pairing.variance))
 
 
 def _label_heights(g, node, heights):
@@ -80,20 +79,20 @@ def _tallest_branch(g, node, heights, ignore=None):
     return tallest
 
 
-def _convert_timestamps(g, timestamp_map, predictor_map, node, results, conversion_chain, error):
+def _convert_timestamps(g, timestamp_map, predictor_map, node, results, conversion_chain, variance):
     """Rewrite node and all unvisited nodes reachable from node using the
     chain of clocksync objects in conversion_chain, populating the results dict.
 
     node: the root node to convert
     timestamp_map: dict of node -> list of timestamps to convert
-    results: dict of node -> list of (error, converted timestamp) tuples to populate
+    results: dict of node -> list of (variance, converted timestamp) tuples to populate
     conversion_chain: list of predictor tuples to apply to node, in order
-    error: the total error introduced by chain: sum([p.error for p in chain])
+    variance: the total error introduced by chain: sum([p.variance for p in chain])
     """
 
     # convert our own timestamp using the provided chain
     r = []
-    results[node] = (error, r)   # also used as a visited-map
+    results[node] = (variance, r)   # also used as a visited-map
     for ts in timestamp_map[node]:
         for predictor in conversion_chain:
             ts = predictor.predict(ts)
@@ -107,7 +106,7 @@ def _convert_timestamps(g, timestamp_map, predictor_map, node, results, conversi
             _convert_timestamps(g, timestamp_map, predictor_map,
                                 neighbor,
                                 results,
-                                [predictor] + conversion_chain, error + predictor.error)
+                                [predictor] + conversion_chain, variance + predictor.variance)
 
 
 def normalize(clocktracker, timestamp_map):
@@ -119,7 +118,7 @@ def normalize(clocktracker, timestamp_map):
     # Represent the stations as a weighted graph where there
     # is an edge between S0 and S1 with weight W if we have a
     # sufficiently recent clock correlation between S0 and S1 with
-    # estimated error W.
+    # estimated variance W.
     #
     # This graph may have multiple disconnected components. Treat
     # each separately and do this:
@@ -142,7 +141,7 @@ def normalize(clocktracker, timestamp_map):
 
     # build a weighted graph where edges represent usable clock
     # synchronization paths, and the weight of each edge represents
-    # the estimated error introducted by converting a timestamp
+    # the estimated variance introducted by converting a timestamp
     # across that clock synchronization.
 
     # also build a map of predictor objects corresponding to the
@@ -156,7 +155,7 @@ def normalize(clocktracker, timestamp_map):
                 if predictors:
                     predictor_map[(si, sj)] = predictors[0]
                     predictor_map[(sj, si)] = predictors[1]
-                    g.add_edge((si, sj), wt=predictors[0].error)
+                    g.add_edge((si, sj), wt=predictors[0].variance)
 
     # find a minimal spanning tree for each component of the graph
     mst_forest = pygraph.algorithms.minmax.minimal_spanning_tree(g)
@@ -170,7 +169,7 @@ def normalize(clocktracker, timestamp_map):
         if edge[1] is None:
             roots.append(edge[0])
         else:
-            g.add_edge(edge, wt=predictor_map[edge].error)
+            g.add_edge(edge, wt=predictor_map[edge].variance)
 
     # for each spanning tree, find a central node and convert timestamps
     components = []
@@ -203,8 +202,9 @@ def normalize(clocktracker, timestamp_map):
         # by walking the spanning tree edges. Then finally convert to wallclock
         # times as the last step by dividing by the final clock's frequency
         results = {}
-        conversion_chain = [_Predictor(lambda x: x/central.clock.freq, central.clock.jitter)]
-        _convert_timestamps(g, timestamp_map, predictor_map, central, results, conversion_chain, central.clock.jitter)
+        conversion_chain = [_Predictor(lambda x: x/central.clock.freq, central.clock.jitter**2)]
+        _convert_timestamps(g, timestamp_map, predictor_map, central, results,
+                            conversion_chain, central.clock.jitter**2)
 
         components.append(results)
 

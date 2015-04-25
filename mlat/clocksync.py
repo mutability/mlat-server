@@ -65,7 +65,7 @@ class ClockPairing(object):
         self.i_relative_freq = base.clock.freq / peer.clock.freq
         self.drift_max = base.clock.max_freq_error + peer.clock.max_freq_error
         self.drift_max_delta = self.drift_max / 10.0
-        self.outlier_threshold = 5 * (peer.clock.jitter + base.clock.jitter)   # 5 sigma
+        self.outlier_threshold = 5 * math.sqrt(peer.clock.jitter ** 2 + base.clock.jitter ** 2)   # 5 sigma
 
         now = time.monotonic()
         self.expiry = now + 120.0
