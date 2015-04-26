@@ -505,6 +505,8 @@ class JsonClient(mlat.connection.Connection):
             self.process_input_connected_message(msg['input_connected'])
         elif 'input_disconnected' in msg:
             self.process_input_disconnected_message(msg['input_disconnected'])
+        elif 'clock_reset' in msg:
+            self.process_clock_reset_message(msg['clock_reset'])
         elif 'heartbeat' in msg:
             self.process_heartbeat_message(msg['heartbeat'])
         elif 'rate_report' in msg:
@@ -530,6 +532,9 @@ class JsonClient(mlat.connection.Connection):
         self.coordinator.receiver_clock_reset(self.receiver)
 
     def process_input_disconnected_message(self, m):
+        self.coordinator.receiver_clock_reset(self.receiver)
+
+    def process_clock_reset_message(self, m):
         self.coordinator.receiver_clock_reset(self.receiver)
 
     def process_heartbeat_message(self, m):
