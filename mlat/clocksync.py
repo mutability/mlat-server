@@ -29,13 +29,13 @@ class Clock(object):
 
 def make_clock(clock_type):
     if clock_type == 'radarcape_gps':
-        return Clock(epoch='gps_midnight', freq=1e9, max_freq_error=5e-6, jitter=50e-9)
+        return Clock(epoch='gps_midnight', freq=1e9, max_freq_error=1e-6, jitter=15e-9)
     if clock_type == 'beast':
-        return Clock(epoch=None, freq=12e6, max_freq_error=5e-6, jitter=100e-9)
+        return Clock(epoch=None, freq=12e6, max_freq_error=5e-6, jitter=83e-9)
+    if clock_type == 'sbs':
+        return Clock(epoch=None, freq=20e6, max_freq_error=100e-6, jitter=500e-9)
     if clock_type == 'dump1090':
         return Clock(epoch=None, freq=12e6, max_freq_error=100e-6, jitter=500e-9)
-    if clock_type == 'sbs3':
-        return Clock(epoch=None, freq=20e6, max_freq_error=5e-6, jitter=100e-9)
     raise NotImplementedError
 
 
