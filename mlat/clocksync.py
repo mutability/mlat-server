@@ -210,7 +210,7 @@ class ClockPairing(object):
 
         self.outliers = max(0, self.outliers - 2)
 
-        if abs(prediction_error) > self.outlier_threshold:
+        if self.outliers and abs(prediction_error) > self.outlier_threshold:
             glogger.info("{r}: {a:06X}: step by {e:.1f}us".format(r=self, a=address, e=prediction_error*1e6))
 
     def predict_peer(self, base_ts):
