@@ -206,7 +206,7 @@ class ClockPairing(object):
 
         # if we are accepting an outlier, do not include it in our integral term
         if not self.outliers:
-            self.cumulative_error = max(-50e-6, min(50e-6, prediction_error))  # limit to 50us
+            self.cumulative_error = max(-50e-6, min(50e-6, self.cumulative_error + prediction_error))  # limit to 50us
 
         self.outliers = max(0, self.outliers - 2)
 
