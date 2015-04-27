@@ -85,6 +85,17 @@ class MlatServer(object):
                             type=port_or_hostport,
                             default=[])
 
+        parser.add_argument('--filtered-basestation-connect',
+                            help="connect to a host:port and send Basestation-format results.",
+                            action='append',
+                            type=hostport,
+                            default=[])
+        parser.add_argument('--filtered-basestation-listen',
+                            help="listen on a [host:]port and send Basestation-format results to clients that connect.",
+                            action='append',
+                            type=port_or_hostport,
+                            default=[])
+
         parser.add_argument('--check-leaks',
                             help="run periodic memory leak checks (requires objgraph package).",
                             action='store_true',
@@ -108,12 +119,26 @@ class MlatServer(object):
         for host, port in args.basestation_connect:
             subtasks.append(mlat.output.make_basestation_connector(host=host,
                                                                    port=port,
-                                                                   coordinator=self.coordinator))
+                                                                   coordinator=self.coordinator,
+                                                                   use_kalman_data=False))
 
         for host, port in args.basestation_listen:
             subtasks.append(mlat.output.make_basestation_listener(host=host,
                                                                   port=port,
-                                                                  coordinator=self.coordinator))
+                                                                  coordinator=self.coordinator,
+                                                                  use_kalman_data=False))
+
+        for host, port in args.filtered_basestation_connect:
+            subtasks.append(mlat.output.make_basestation_connector(host=host,
+                                                                   port=port,
+                                                                   coordinator=self.coordinator,
+                                                                   use_kalman_data=True))
+
+        for host, port in args.filtered_basestation_listen:
+            subtasks.append(mlat.output.make_basestation_listener(host=host,
+                                                                  port=port,
+                                                                  coordinator=self.coordinator,
+                                                                  use_kalman_data=True))
 
         for filename in args.write_csv:
             subtasks.append(mlat.output.LocalCSVWriter(coordinator=self.coordinator,

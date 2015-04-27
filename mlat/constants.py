@@ -14,3 +14,9 @@ RTOD = 180.0 / math.pi
 FTOM = 0.3038
 # metres to feet
 MTOF = 1.0/FTOM
+
+# m/s to knots
+MS_TO_KTS = 1.9438
+
+# m/s to fpm
+MS_TO_FPM = MTOF * 60

@@ -225,7 +225,7 @@ class Coordinator(object):
         receiver.last_rate_report = report
         self.tracker.update_interest(receiver)
 
-    def forward_results(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
+    def forward_results(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct, kalman_state):
         for receiver in receivers:
             try:
                 receiver.connection.report_mlat_position(receiver,

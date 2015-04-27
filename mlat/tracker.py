@@ -1,6 +1,7 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
 import asyncio
+import mlat.kalman
 
 
 class TrackedAircraft(object):
@@ -37,6 +38,8 @@ class TrackedAircraft(object):
         self.last_result_var = None
         # last multilateration, distinct receivers
         self.last_result_distinct = None
+        # kalman filter state
+        self.kalman = mlat.kalman.KalmanState(self)
 
         self.callsign = None
         self.squawk = None

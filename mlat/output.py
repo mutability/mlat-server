@@ -36,6 +36,7 @@ class LocalCSVWriter(object):
     """Writes multilateration results to a local CSV file"""
 
     TEMPLATE = '{t:.3f},{address:06X},{callsign},{squawk},{lat:.4f},{lon:.4f},{alt:.0f},{err:.0f},{n},{d},{receivers}\n'
+    KTEMPLATE = '{t:.3f},{address:06X},{callsign},{squawk},{lat:.4f},{lon:.4f},{alt:.0f},{err:.0f},{n},{d},{receivers},{klat:.4f},{klon:.4f},{kalt:.0f},{kheading:.0f},{kspeed:.0f},{kvrate:.0f},{kerr:.0f}\n'  # noqa
 
     def __init__(self, coordinator, filename):
         self.logger = logging.getLogger("csv")
@@ -64,7 +65,7 @@ class LocalCSVWriter(object):
         except Exception:
             self.logger.exception("Failed to reopen {filename}".format(filename=self.filename))
 
-    def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
+    def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct, kalman_state):
         try:
             lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
 
@@ -81,18 +82,39 @@ class LocalCSVWriter(object):
                 else:
                     err_est = -1
 
-            line = self.TEMPLATE.format(
-                t=receive_timestamp,
-                address=address,
-                callsign=csv_quote(callsign),
-                squawk=csv_quote(squawk),
-                lat=lat,
-                lon=lon,
-                alt=alt * mlat.constants.MTOF,
-                err=err_est,
-                n=len(receivers),
-                d=distinct,
-                receivers=csv_quote(','.join([receiver.user for receiver in receivers])))
+            if kalman_state.valid:
+                line = self.KTEMPLATE.format(
+                    t=receive_timestamp,
+                    address=address,
+                    callsign=csv_quote(callsign),
+                    squawk=csv_quote(squawk),
+                    lat=lat,
+                    lon=lon,
+                    alt=alt * mlat.constants.MTOF,
+                    err=err_est,
+                    n=len(receivers),
+                    d=distinct,
+                    receivers=csv_quote(','.join([receiver.user for receiver in receivers])),
+                    klat=kalman_state.position_llh[0],
+                    klon=kalman_state.position_llh[1],
+                    kalt=kalman_state.position_llh[2] * mlat.constants.MTOF,
+                    kheading=kalman_state.heading,
+                    kspeed=kalman_state.ground_speed * mlat.constants.MS_TO_KTS,
+                    kvrate=kalman_state.vertical_speed * mlat.constants.MS_TO_FPM,
+                    kerr=kalman_state.position_error)
+            else:
+                line = self.TEMPLATE.format(
+                    t=receive_timestamp,
+                    address=address,
+                    callsign=csv_quote(callsign),
+                    squawk=csv_quote(squawk),
+                    lat=lat,
+                    lon=lon,
+                    alt=alt * mlat.constants.MTOF,
+                    err=err_est,
+                    n=len(receivers),
+                    d=distinct,
+                    receivers=csv_quote(','.join([receiver.user for receiver in receivers])))
 
             self.f.write(line)
 
@@ -104,7 +126,7 @@ class LocalCSVWriter(object):
 class BasestationClient(object):
     TEMPLATE = 'MSG,{mtype},1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}\n'  # noqa
 
-    def __init__(self, reader, writer, *, coordinator, heartbeat_interval=30.0):
+    def __init__(self, reader, writer, *, coordinator, use_kalman_data, heartbeat_interval=30.0):
         peer = writer.get_extra_info('peername')
         self.host = peer[0]
         self.port = peer[1]
@@ -114,6 +136,7 @@ class BasestationClient(object):
         self.reader = reader
         self.writer = writer
         self.coordinator = coordinator
+        self.use_kalman_data = use_kalman_data
         self.heartbeat_interval = heartbeat_interval
         self.last_output = time.monotonic()
         self.heartbeat_task = asyncio.async(self.send_heartbeats())
@@ -167,9 +190,21 @@ class BasestationClient(object):
             self.close()
             return
 
-    def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
+    def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct, kalman_data):
         try:
-            lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
+            if self.use_kalman_data:
+                if not kalman_data.valid:
+                    return
+
+                lat, lon, alt = kalman_data.position_llh
+                speed = int(round(kalman_data.ground_speed * mlat.constants.MS_TO_KTS))
+                heading = int(round(kalman_data.heading))
+                vrate = int(round(kalman_data.vertical_speed * mlat.constants.MS_TO_FPM))
+            else:
+                lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
+                speed = ''
+                heading = ''
+                vrate = ''
 
             ac = self.coordinator.tracker.aircraft[address]
             callsign = ac.callsign
@@ -188,9 +223,9 @@ class BasestationClient(object):
                                         lat=round(lat, 4),
                                         lon=round(lon, 4),
                                         altitude=altitude,
-                                        speed='',
-                                        heading='',
-                                        vrate='',
+                                        speed=speed,
+                                        heading=heading,
+                                        vrate=vrate,
                                         fs='',
                                         emerg='',
                                         ident='',
@@ -203,13 +238,15 @@ class BasestationClient(object):
             # swallow the exception so we don't affect our caller
 
 
-def make_basestation_listener(host, port, coordinator):
+def make_basestation_listener(host, port, coordinator, use_kalman_data):
     return mlat.net.MonitoringListener(host, port,
                                        functools.partial(BasestationClient,
-                                                         coordinator=coordinator))
+                                                         coordinator=coordinator,
+                                                         use_kalman_data=use_kalman_data))
 
 
-def make_basestation_connector(host, port, coordinator):
+def make_basestation_connector(host, port, coordinator, use_kalman_data):
     return mlat.net.MonitoringConnector(host, port, 30.0,
                                         functools.partial(BasestationClient,
-                                                          coordinator=coordinator))
+                                                          coordinator=coordinator,
+                                                          use_kalman_data=use_kalman_data))
