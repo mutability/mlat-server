@@ -199,7 +199,7 @@ class KalmanState(object):
             points_pred = pykalman.unscented.moments2points(moments_pred)
 
             # Decide whether this is an outlier:
-            # Get the current filter state mean and covariance
+            # Get the predicted filter state mean and covariance
             # as an observation:
             (obs_points_pred, obs_moments_pred) = (
                 pykalman.unscented.unscented_transform(
@@ -208,8 +208,8 @@ class KalmanState(object):
                 )
             )
 
-            # Find the Mahalanobis distance between the filter observation
-            # and our new observation, using the filter's observation
+            # Find the Mahalanobis distance between the predicted observation
+            # and our new observation, using the predicted observation's
             # covariance as our expected distribution.
             innovation = obs - obs_moments_pred.mean
             vi = numpy.linalg.inv(obs_moments_pred.covariance)
@@ -232,7 +232,7 @@ class KalmanState(object):
 
             self._outliers = 0
 
-            # correct filter state using the current observations
+            # correct filter state using the current observation
             (self._mean, self._cov) = (
                 pykalman.unscented.unscented_filter_correct(
                     observation_function=observation_function,
