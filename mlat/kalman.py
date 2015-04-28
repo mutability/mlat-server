@@ -125,7 +125,7 @@ class KalmanState(object):
         distinct:              the number of distinct receivers (<= len(measurements))
         """
 
-        if self._mean is None or (position_time - self.last_update > 120.0):
+        if self._mean is None or (position_time - self.last_update > 60.0):
             # reinitialize
             self._reset()
             if distinct >= 4:
