@@ -39,7 +39,7 @@ class TrackedAircraft(object):
         # last multilateration, distinct receivers
         self.last_result_distinct = None
         # kalman filter state
-        self.kalman = mlat.kalman.KalmanState(self)
+        self.kalman = mlat.kalman.KalmanStateCA(self)
 
         self.callsign = None
         self.squawk = None
