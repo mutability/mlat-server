@@ -10,7 +10,6 @@ import mlat.geodesy
 import mlat.constants
 
 glogger = logging.getLogger("kalman")
-_kalman_filter = pykalman.unscented.AdditiveUnscentedKalmanFilter()   # our shared filter
 
 
 def _kalman_observation(state, *, positions):
