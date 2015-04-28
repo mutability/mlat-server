@@ -127,6 +127,7 @@ class KalmanState(object):
 
         if self._mean is None or (position_time - self.last_update > 120.0):
             # reinitialize
+            self._reset()
             if distinct >= 4:
                 # accept this
                 self.last_update = position_time
@@ -137,7 +138,6 @@ class KalmanState(object):
                 return
             else:
                 # nope.
-                self._reset()
                 return
 
         if self._new and distinct < 4:
