@@ -167,13 +167,13 @@ class KalmanState(object):
         accel = 0.5   # m/s^2
 
         trans_covar = numpy.zeros((6, 6))
-        trans_covar[0, 0] = trans_covar[1, 1] = trans_covar[2, 2] = accel**2 * 0.25*dt**4
-        trans_covar[0, 3] = trans_covar[3, 0] = accel**2 * 0.5*dt**3
-        trans_covar[1, 4] = trans_covar[4, 1] = accel**2 * 0.5*dt**3
-        trans_covar[2, 5] = trans_covar[5, 2] = accel**2 * 0.5*dt**3
-        trans_covar[3, 3] = trans_covar[4, 4] = trans_covar[5, 5] = accel**2 * dt**2
+        trans_covar[0, 0] = trans_covar[1, 1] = trans_covar[2, 2] = 0.25*dt**4
+        trans_covar[0, 3] = trans_covar[3, 0] = 0.5*dt**3
+        trans_covar[1, 4] = trans_covar[4, 1] = 0.5*dt**3
+        trans_covar[2, 5] = trans_covar[5, 2] = 0.5*dt**3
+        trans_covar[3, 3] = trans_covar[4, 4] = trans_covar[5, 5] = dt**2
 
-        trans_covar = trans_covar * accel**2
+        trans_covar *= accel**2
 
         try:
             transition_function = functools.partial(_kalman_transition, dt=dt)
