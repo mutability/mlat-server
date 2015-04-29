@@ -54,7 +54,7 @@ def host_and_ports(s):
 class MlatServer(object):
     def __init__(self):
         self.loop = asyncio.get_event_loop()
-        self.coordinator = mlat.coordinator.Coordinator()
+        self.coordinator = None
 
     def make_arg_parser(self):
         parser = argparse.ArgumentParser(description="Multilateration server.")
@@ -100,6 +100,9 @@ class MlatServer(object):
                             help="run periodic memory leak checks (requires objgraph package).",
                             action='store_true',
                             default=False)
+
+        parser.add_argument('--dump-pseudorange',
+                            help="dump pseudorange data in json format to a file")
 
         return parser
 
@@ -152,6 +155,9 @@ class MlatServer(object):
 
     def run(self):
         args = self.make_arg_parser().parse_args()
+
+        self.coordinator = mlat.coordinator.Coordinator(pseudorange_filename=args.dump_pseudorange)
+
         subtasks = self.make_subtasks(args)
 
         # Start everything

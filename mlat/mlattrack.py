@@ -1,5 +1,6 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
+import json
 import asyncio
 import time
 import logging
@@ -26,13 +27,19 @@ class MessageGroup:
 
 
 class MlatTracker(object):
-    def __init__(self, coordinator):
+    def __init__(self, coordinator, pseudorange_filename=None):
         self.pending = {}
         self.coordinator = coordinator
         self.tracker = coordinator.tracker
         self.clock_tracker = coordinator.clock_tracker
         self.read_blacklist()
         self.coordinator.add_sighup_handler(self.read_blacklist)
+
+        self.pseudorange_file = None
+        self.pseudorange_filename = pseudorange_filename
+        if self.pseudorange_filename:
+            self.reopen_pseudoranges()
+            self.coordinator.add_sighup_handler(self.reopen_pseudoranges)
 
     def read_blacklist(self):
         s = set()
@@ -46,6 +53,13 @@ class MlatTracker(object):
 
         glogger.info("Read {n} blacklist entries".format(n=len(s)))
         self.blacklist = s
+
+    def reopen_pseudoranges(self):
+        if self.pseudorange_file:
+            self.pseudorange_file.close()
+            self.pseudorange_file = None
+
+        self.pseudorange_file = open(self.pseudorange_filename, 'a')
 
     def receiver_mlat(self, receiver, timestamp, message):
         # use message as key
@@ -197,6 +211,37 @@ class MlatTracker(object):
                     ecef, ecef_cov,
                     [receiver for receiver, timestamp, error in cluster], distinct,
                     ac.kalman)
+
+        if self.pseudorange_file:
+            cluster_state = []
+            t0 = cluster[0][1]
+            for receiver, timestamp, variance in cluster:
+                cluster_state.append([round(receiver.position[0], 0),
+                                      round(receiver.position[1], 0),
+                                      round(receiver.position[2], 0),
+                                      round((timestamp-t0)*1e6, 1),
+                                      round(variance*1e12, 2)])
+
+            state = {'icao': '{a:06x}'.format(a=decoded.address),
+                     'time': round(group.first_seen, 3),
+                     'ecef': [round(ecef[0], 0),
+                              round(ecef[1], 0),
+                              round(ecef[2], 0)],
+                     'ecef_cov': [round(ecef_cov[0, 0], 0),
+                                  round(ecef_cov[0, 1], 0),
+                                  round(ecef_cov[0, 2], 0),
+                                  round(ecef_cov[1, 0], 0),
+                                  round(ecef_cov[1, 1], 0),
+                                  round(ecef_cov[1, 2], 0),
+                                  round(ecef_cov[2, 0], 0),
+                                  round(ecef_cov[2, 1], 0),
+                                  round(ecef_cov[2, 2], 0)],
+                     'altitude': round(altitude, 0),
+                     'distinct': distinct,
+                     'cluster': cluster_state}
+
+            json.dump(state, self.pseudorange_file)
+            self.pseudorange_file.write('\n')
 
 
 def _cluster_timestamps(component):

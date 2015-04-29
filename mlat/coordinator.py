@@ -73,10 +73,8 @@ class Coordinator(object):
     """Master coordinator. Receives all messages from receivers and dispatches
     them to clock sync / multilateration / tracking as needed."""
 
-    def __init__(self, authenticator=None):
-        """Coordinator(authenticator=None) -> coordinator object.
-
-        If authenticator is not None, it should be a callable that takes two arguments:
+    def __init__(self, authenticator=None, pseudorange_filename=None):
+        """If authenticator is not None, it should be a callable that takes two arguments:
         the newly created Receiver, plus the 'auth' argument provided by the connection.
         The authenticator may modify the receiver if needed. The authenticator should either
         return silently on success, or raise an exception (propagated to the caller) on
@@ -88,7 +86,7 @@ class Coordinator(object):
         self.authenticator = authenticator
         self.tracker = mlat.tracker.Tracker()
         self.clock_tracker = mlat.clocktrack.ClockTracker()
-        self.mlat_tracker = mlat.mlattrack.MlatTracker(self)
+        self.mlat_tracker = mlat.mlattrack.MlatTracker(self, pseudorange_filename=pseudorange_filename)
         self.output_handlers = [self.forward_results]
 
     def start(self):
