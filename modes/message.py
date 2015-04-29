@@ -1,7 +1,27 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
+# Part of mlat-server: a Mode S multilateration server
+# Copyright (C) 2015  Oliver Jowett <oliver@mutability.co.uk>
 
-__all__ = ('ESType', 'decode', 'decode_aa')
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+"""
+Top-level decoder for Mode S responses and ADS-B extended squitter messages.
+"""
+
+__all__ = ('ESType', 'decode', 'DF0', 'DF4', 'DF5', 'DF11', 'DF16',
+           'DF17', 'DF18', 'DF20', 'DF21', 'ExtendedSquitter', 'CommB')
 
 from enum import Enum
 
@@ -12,7 +32,31 @@ from . import crc
 ais_charset = " ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????"
 
 
-class DF0:
+class ModeSMessage:
+    """
+    A decoded Mode S message.
+
+    All subclasses have the following fields present, though some may be
+    set to None:
+
+      DF: downlink format
+      address: ICAO address of transmitting aircraft. For some message types
+        this is derived from the CRC field and may be unreliable.
+      altitude: decoded altitude in feet, or None if not present / not available
+      callsign: decoded callsign, or None if not present
+      squawk: decoded squawk, or None if not present
+      crc_ok: True if the CRC is OK. False if it is bad. None if the correctness
+        of the CRC cannot be checked (e.g. the messages uses AP or PI)
+    """
+
+
+class DF0(ModeSMessage):
+    """
+    DF0 (Short air-air surveillance / ACAS) message.
+
+    Fields: DF, VS, CC, SL, RI, AC, altitude, address
+    """
+
     def __init__(self, frombuf):
         self.DF = (frombuf[0] & 0xf8) >> 3  # 5 bits
         self.VS = (frombuf[0] & 0x04) >> 2  # 1 bit
@@ -31,7 +75,13 @@ class DF0:
         self.address = crc.residual(frombuf)
 
 
-class DF4:
+class DF4(ModeSMessage):
+    """
+    DF4 (Surveillance, altitude reply) message.
+
+    Fields: DF, FS, DR, UM, AC, altitude, address
+    """
+
     def __init__(self, frombuf):
         self.DF = (frombuf[0] & 0xf8) >> 3  # 5 bits
         self.FS = (frombuf[0] & 0x07)       # 3 bits
@@ -46,7 +96,13 @@ class DF4:
         self.address = crc.residual(frombuf)
 
 
-class DF5:
+class DF5(ModeSMessage):
+    """
+    DF5 (Surveillance, identity reply) message.
+
+    Fields: DF, FS, DR, UM, ID, squawk, address
+    """
+
     def __init__(self, frombuf):
         self.DF = (frombuf[0] & 0xf8) >> 3  # 5 bits
         self.FS = (frombuf[0] & 0x07)       # 3 bits
@@ -61,7 +117,13 @@ class DF5:
         self.address = crc.residual(frombuf)
 
 
-class DF11:
+class DF11(ModeSMessage):
+    """
+    DF11 (All-call reply) message.
+
+    Fields: DF, CA, AA, address, crc_ok
+    """
+
     def __init__(self, frombuf):
         self.DF = (frombuf[0] & 0xf8) >> 3  # 5 bits
         self.CA = (frombuf[0] & 0x07)       # 3 bits
@@ -80,7 +142,13 @@ class DF11:
         self.address = self.AA
 
 
-class DF16:
+class DF16(ModeSMessage):
+    """
+    DF16 (Long air-air surveillance / ACAS) message.
+
+    Fields: DF, VS, SL, RI, AC, altitude, address
+    """
+
     def __init__(self, frombuf):
         self.DF = (frombuf[0] & 0xf8) >> 3  # 5 bits
         self.VS = (frombuf[0] & 0x04) >> 2  # 1 bit
@@ -99,7 +167,12 @@ class DF16:
         self.address = crc.residual(frombuf)
 
 
-class CommB(object):
+class CommB(ModeSMessage):
+    """A message containing a Comm-B reply.
+
+    Fields: MB, callsign
+    """
+
     def __init__(self, frombuf):
         self.MB = frombuf[4:11]  # 56 bits
 
@@ -124,6 +197,12 @@ class CommB(object):
 
 
 class DF20(CommB):
+    """
+    DF20 (Comm-B, altitude reply) message.
+
+    Fields: DF, FS, DR, UM, AC, altitude, address, MB, callsign
+    """
+
     def __init__(self, frombuf):
         CommB.__init__(self, frombuf)
 
@@ -142,6 +221,12 @@ class DF20(CommB):
 
 
 class DF21(CommB):
+    """
+    DF21 (Comm-B, identity reply) message.
+
+    Fields: DF, FS, DR, UM, ID, squawk, address, MB, callsign
+    """
+
     def __init__(self, frombuf):
         CommB.__init__(self, frombuf)
 
@@ -160,6 +245,7 @@ class DF21(CommB):
 
 
 class ESType(Enum):
+    """Identifies the type of an Extended Squitter message."""
     id_and_category = 1
     airborne_position = 2
     surface_position = 3
@@ -193,7 +279,15 @@ es_types = {
 }
 
 
-class ExtendedSquitter(object):
+class ExtendedSquitter(ModeSMessage):
+    """A message that carries an Extended Squitter message.
+
+    Fields: estype, nuc
+
+    For airborne positions: SS, SAF, AC12, T, F, LAN, LON, altitude
+    For id and category: CATEGORY, callsign
+    """
+
     def __init__(self, frombuf):
         metype = (frombuf[4] & 0xf8) >> 3
         self.estype, self.nuc = es_types.get(metype, (ESType.other, None))
@@ -233,6 +327,11 @@ class ExtendedSquitter(object):
 
 
 class DF17(ExtendedSquitter):
+    """DF17 (Extended Squitter) message.
+
+    Fields: DF, CA, AA, address, crc_ok; plus those of ExtendedSquitter.
+    """
+
     def __init__(self, frombuf):
         ExtendedSquitter.__init__(self, frombuf)
 
@@ -248,6 +347,11 @@ class DF17(ExtendedSquitter):
 
 
 class DF18(ExtendedSquitter):
+    """DF18 (Extended Squitter / Non-Transponder) message.
+
+    Fields: DF, CF, AA, address, crc_ok; plus those of ExtendedSquitter.
+    """
+
     def __init__(self, frombuf):
         ExtendedSquitter.__init__(self, frombuf)
 
@@ -276,12 +380,17 @@ message_types = {
 
 
 def decode(frombuf):
+    """
+    Decode a Mode S message.
+
+      frombuf: a 7-byte or 14-byte message containing the encoded Mode S message
+
+    Returns a suitable message object, or None if the message type is not
+    handled.
+    """
+
     df = (frombuf[0] & 0xf8) >> 3
     try:
         return message_types[df](frombuf)
     except KeyError:
         return None
-
-
-def decode_aa(frombuf):
-    return (frombuf[1] << 16) | (frombuf[2] << 8) | frombuf[3]

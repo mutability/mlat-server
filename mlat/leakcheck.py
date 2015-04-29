@@ -1,5 +1,22 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
+# Part of mlat-server: a Mode S multilateration server
+# Copyright (C) 2015  Oliver Jowett <oliver@mutability.co.uk>
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
 # Derived from (and uses) objgraph, which has licence:
 
 # Copyright (c) 2008-2015 Marius Gedminas <marius@pov.lt> and contributors
@@ -22,6 +39,10 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
+
+"""
+Simple periodic memory leak checker.
+"""
 
 import asyncio
 import gc

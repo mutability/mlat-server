@@ -1,5 +1,25 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
+# Part of mlat-server: a Mode S multilateration server
+# Copyright (C) 2015  Oliver Jowett <oliver@mutability.co.uk>
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+"""
+Utility functions to convert between coordinate systems and calculate distances.
+"""
+
 import math
 from .constants import DTOR, RTOD
 
@@ -60,9 +80,9 @@ def ecef2llh(ecef):
 
 
 def greatcircle(p0, p1):
-    """Returns a great-circle distance in metres, _assuming spherical earth_
-    and _ignoring altitude_. Don't use this if you need a distance accurate to
-    better than 1%."""
+    """Returns a great-circle distance in metres between two LLH points,
+    _assuming spherical earth_ and _ignoring altitude_. Don't use this if you
+    need a distance accurate to better than 1%."""
 
     lat0 = p0[0] * DTOR
     lon0 = p0[1] * DTOR
@@ -76,4 +96,5 @@ def greatcircle(p0, p1):
 # direct implementation here turns out to be _much_ faster (10-20x) compared to
 # scipy.spatial.distance.euclidean or numpy-based approaches
 def ecef_distance(p0, p1):
+    """Returns the straight-line distance in metres between two ECEF points."""
     return math.sqrt((p0[0] - p1[0])**2 + (p0[1] - p1[1])**2 + (p0[2] - p1[2])**2)

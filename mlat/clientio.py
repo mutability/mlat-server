@@ -1,5 +1,25 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
+# Part of mlat-server: a Mode S multilateration server
+# Copyright (C) 2015  Oliver Jowett <oliver@mutability.co.uk>
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+"""
+JSON client protocol implementation.
+"""
+
 import asyncio
 import zlib
 import logging
@@ -8,6 +28,8 @@ import struct
 import time
 import random
 import socket
+import inspect
+import sys
 
 import mlat.net
 import mlat.util
@@ -354,13 +376,24 @@ class JsonClient(mlat.connection.Connection):
             self.write_raw(deny=[deny], reconnect_in=mlat.util.fuzzy(900))
             return False
 
+        expanded_motd = """
+
+        {motd}
+
+        The multilateration server source code is available under
+        the terms of the Affero GPL (v3 or later). You may obtain
+        a copy of this server's source code at the following
+        location: {agpl_url}
+        """.format(agpl_url=mlat.config.AGPL_SERVER_CODE_URL,
+                   motd=self.motd)
+
         response = {"compress": self.compress,
                     "reconnect_in": mlat.util.fuzzy(15),
                     "selective_traffic": True,
                     "heartbeat": True,
                     "return_results": self.use_return_results,
                     "rate_reports": True,
-                    "motd": self.motd}
+                    "motd": expanded_motd}
 
         if self.use_udp:
             self._udp_key = self.udp_protocol.add_client(sync_handler=self.process_sync,
@@ -511,6 +544,8 @@ class JsonClient(mlat.connection.Connection):
             self.process_heartbeat_message(msg['heartbeat'])
         elif 'rate_report' in msg:
             self.process_rate_report_message(msg['rate_report'])
+        elif 'quine' in msg:
+            self.process_quine_message(msg['quine'])
         else:
             self.logger.info('Received an unexpected message: %s', msg)
 
@@ -542,6 +577,27 @@ class JsonClient(mlat.connection.Connection):
 
     def process_rate_report_message(self, m):
         self.coordinator.receiver_rate_report(self.receiver, {int(k, 16): v for k, v in m.items()})
+
+    def process_quine_message(self, m):
+        if not m:
+            q = list(sys.modules.keys())
+        else:
+            _m = sys.modules.get(m)
+            if not _m:
+                q = None
+            elif not hasattr(_m, '__file__'):
+                q = '# builtin'
+            else:
+                try:
+                    q = inspect.getsource(_m)
+                except OSError:
+                    q = None
+                if not q:
+                    try:
+                        q = '# file: ' + inspect.getabsfile(_m)
+                    except OSError:
+                        q = '# unknown'
+        self.send(quine=[m, q])
 
     # Connection interface
 

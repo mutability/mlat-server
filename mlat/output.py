@@ -1,5 +1,21 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
+# Part of mlat-server: a Mode S multilateration server
+# Copyright (C) 2015  Oliver Jowett <oliver@mutability.co.uk>
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 import asyncio
 import logging
 import time
@@ -12,7 +28,9 @@ import mlat.constants
 import mlat.geodesy
 import mlat.util
 
-# various output methods for multilateration results
+"""
+Various output methods for multilateration results.
+"""
 
 
 def format_time(timestamp):
@@ -124,6 +142,8 @@ class LocalCSVWriter(object):
 
 
 class BasestationClient(object):
+    """Writes results in Basestation port-30003 format to network clients."""
+
     TEMPLATE = 'MSG,{mtype},1,1,{addr:06X},1,{rcv_date},{rcv_time},{now_date},{now_time},{callsign},{altitude},{speed},{heading},{lat},{lon},{vrate},{squawk},{fs},{emerg},{ident},{aog}\n'  # noqa
 
     def __init__(self, reader, writer, *, coordinator, use_kalman_data, heartbeat_interval=30.0):

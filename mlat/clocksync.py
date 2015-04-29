@@ -1,9 +1,31 @@
 # -*- mode: python; indent-tabs-mode: nil -*-
 
+# Part of mlat-server: a Mode S multilateration server
+# Copyright (C) 2015  Oliver Jowett <oliver@mutability.co.uk>
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+"""
+Maintains clock synchronization between individual pairs of receivers.
+"""
+
 import math
 import time
 import bisect
 import logging
+
+__all__ = ('Clock', 'ClockPairing', 'make_clock')
 
 glogger = logging.getLogger("clocksync")
 
@@ -28,6 +50,8 @@ class Clock(object):
 
 
 def make_clock(clock_type):
+    """Return a new Clock instance for the given clock type."""
+
     if clock_type == 'radarcape_gps':
         return Clock(epoch='gps_midnight', freq=1e9, max_freq_error=1e-6, jitter=15e-9)
     if clock_type == 'beast':
@@ -214,6 +238,10 @@ class ClockPairing(object):
             glogger.info("{r}: {a:06X}: step by {e:.1f}us".format(r=self, a=address, e=prediction_error*1e6))
 
     def predict_peer(self, base_ts):
+        """
+        Given a time from the base clock, predict the time of the peer clock.
+        """
+
         if self.n == 0:
             return None
 
@@ -238,6 +266,11 @@ class ClockPairing(object):
                     (self.ts_base[i] - self.ts_base[i-1]))
 
     def predict_base(self, peer_ts):
+        """
+        Given a time from the peer clock, predict the time of the base
+        clock.
+        """
+
         if self.n == 0:
             return None
 
