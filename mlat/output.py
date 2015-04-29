@@ -82,7 +82,7 @@ class LocalCSVWriter(object):
                 else:
                     err_est = -1
 
-            if kalman_state.valid:
+            if kalman_state.valid and kalman_state.last_update >= receive_timestamp:
                 line = self.KTEMPLATE.format(
                     t=receive_timestamp,
                     address=address,
@@ -193,7 +193,7 @@ class BasestationClient(object):
     def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct, kalman_data):
         try:
             if self.use_kalman_data:
-                if not kalman_data.valid:
+                if not kalman_data.valid or kalman_data.last_update < receive_timestamp:
                     return
 
                 lat, lon, alt = kalman_data.position_llh
