@@ -202,14 +202,14 @@ class KalmanState(object):
             mdsq = numpy.dot(numpy.dot(innovation.T, vi), innovation)
 
             # If the Mahalanobis distance is very large this observation is an outlier
-            if mdsq > 100:
+            if mdsq > 400:  # 20 std devs
                 glogger.info("{ac.icao:06X} skip innov={innovation} mdsq={mdsq}".format(
                     ac=self.ac,
                     innovation=innovation,
                     mdsq=mdsq))
 
                 self._outliers += 1
-                if self._outliers < 3:
+                if self._outliers < 3 or (position_time - self.last_update) < 15.0:
                     # don't use this one
                     return
                 glogger.info("{ac.icao:06X} reset due to outliers.".format(ac=self.ac))
@@ -230,7 +230,7 @@ class KalmanState(object):
             )
 
             # converged enough to start reporting?
-            if self._acquiring and numpy.trace(self._cov) < 3e6:
+            if self._acquiring and numpy.trace(self._cov) < 9e6:
                 glogger.info("{ac.icao:06X} acquired.".format(ac=self.ac))
                 self._acquiring = False
 
@@ -298,13 +298,15 @@ class KalmanStateCV(KalmanState):
         trans_covar[1, 4] = trans_covar[4, 1] = 0.5*dt**3
         trans_covar[2, 5] = trans_covar[5, 2] = 0.5*dt**3
 
-        return trans_covar * self.accel_noise**2
+        # we assume that accel_noise is white noise (uncorrelated) and so
+        # scale by dt not dt**2 here
+        return trans_covar * self.accel_noise**2 * dt
 
 
 class KalmanStateCA(KalmanState):
     """Kalman filter with a constant-acceleration model."""
 
-    accel_noise = 0.2   # m/s^2
+    accel_noise = 0.05   # m/s^2
 
     def set_initial_state(self, leastsquares_position, leastsquares_cov):
         """State is: (position, velocity, acceleration)"""
@@ -345,4 +347,6 @@ class KalmanStateCA(KalmanState):
         trans_covar[4, 7] = trans_covar[7, 4] = dt
         trans_covar[5, 8] = trans_covar[8, 5] = dt
 
-        return trans_covar * self.accel_noise**2
+        # we assume that accel_noise is white noise (uncorrelated) and so
+        # scale by dt not dt**2 here
+        return trans_covar * self.accel_noise**2 * dt

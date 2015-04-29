@@ -174,9 +174,9 @@ class MlatTracker(object):
                     # less accurate than a recent position
                     continue
 
-                if elapsed < 10.0 and var_est > last_result_var * 2.25:
-                    # much less accurate than a recent-ish position
-                    continue
+                #if elapsed < 10.0 and var_est > last_result_var * 2.25:
+                #    # much less accurate than a recent-ish position
+                #    continue
 
                 # accept it
                 result = r
