@@ -169,6 +169,8 @@ class KalmanState(object):
         obs_covar = numpy.diag(obs_var)
 
         dt = position_time - self.last_update
+        if dt < 0:
+            return
 
         try:
             trans_covar = self.transition_covariance(dt)
