@@ -23,8 +23,26 @@ class KalmanState(object):
     as the first 6 components.
     """
 
-    def __init__(self, ac):
-        self.ac = ac
+    # defaults:
+    # minimum distinct receivers to update a filter while acquiring
+    min_acquiring_receivers = 4
+    # minimum distinct receivers to update a filter while tracking
+    min_tracking_receivers = 3
+    # Mahalanobis distance threshold for outliers
+    outlier_mahalanobis_distance = 15.0
+    # position error threshold for switching from acquiring to tracking, meters
+    min_acquiring_position_error = 3e3
+    # velocity error threshold for switching from acquiring to tracking, m/s
+    min_acquiring_velocity_error = 50
+    # position error threshold for switching from tracking to acquiring, meters
+    max_tracking_position_error = 5e3
+    # velocity error threshold for switching from tracking to acquiring, m/s
+    max_tracking_velocity_error = 75
+    # process noise, m/s^2 or m/s^3
+    process_noise = 0.10
+
+    def __init__(self, icao):
+        self.icao = icao
         self._reset()
 
     def _reset(self):
@@ -35,7 +53,7 @@ class KalmanState(object):
         self._outliers = 0
         self.last_update = None
 
-        # does the filter have useful derived data?
+        # does the filter have useful data?
         self.valid = False
 
         # most recent values derived from filter state
@@ -55,8 +73,8 @@ class KalmanState(object):
         """Kalman filter observation function.
 
         Given state (position,...) and a list of N receiver positions,
-        return N-1 pseudorange observations (each relative to the first receiver's
-        pseudorange) and an altitude."""
+        return an altitude observation and N-1 pseudorange observations; the
+        pseudoranges are relative to the first receiver's pseudorange."""
 
         x, y, z = state[0:3]
 
@@ -77,17 +95,13 @@ class KalmanState(object):
     def _update_derived(self):
         """Update derived values from self._mean and self._cov"""
 
-        if self._mean is None or self._acquiring:
-            self.valid = False
-            return
-
         self.position = self._mean[0:3]
         self.velocity = self._mean[3:6]
 
         pe = numpy.trace(self._cov[0:3, 0:3])
-        self.position_error = 0 if pe < 0 else math.sqrt(pe)
+        self.position_error = 1e6 if pe < 0 else math.sqrt(pe)
         ve = numpy.trace(self._cov[3:6, 3:6])
-        self.velocity_error = 0 if ve < 0 else math.sqrt(ve)
+        self.velocity_error = 1e6 if ve < 0 else math.sqrt(ve)
 
         lat, lon, alt = self.position_llh = mlat.geodesy.ecef2llh(self.position)
 
@@ -114,28 +128,25 @@ class KalmanState(object):
         position_time:         the time of these measurements, UTC seconds
         measurements:          a list of (receiver, timestamp, variance) tuples
         altitude:              reported altitude in meters
-        leastsquares_position: the ECEF position computed by the least-squares solver
+        leastsquares_position: the ECEF position computed by the least-squares
+                               solver
         leastsquares_cov:      the covariance of leastsquares_position
-        distinct:              the number of distinct receivers (<= len(measurements))
+        distinct:              the number of distinct receivers
         """
 
-        if self.last_update is not None and (position_time - self.last_update > 60.0):
-            glogger.info("{ac.icao:06X} tracking timed out".format(ac=self.ac))
-            self._reset()
+        if self._acquiring and distinct < self.min_acquiring_receivers:
+            # don't trust 3 station results until we have converged
+            return
 
         if self._mean is None:
-            # try to acquire an initial position
-            if distinct >= 4:
-                # accept this
-                self.last_update = position_time
-                self.set_initial_state(leastsquares_position, leastsquares_cov)
-                return
-            else:
-                # nope.
-                return
+            # acquire an initial position
+            glogger.info("{icao:06X} acquiring.".format(icao=self.icao))
+            self.last_update = position_time
+            self.set_initial_state(leastsquares_position, leastsquares_cov)
+            return
 
-        if self._acquiring and distinct < 4:
-            # don't trust 3 station results until we have converged
+        if distinct < self.min_tracking_receivers:
+            # don't use this one
             return
 
         # update filter
@@ -161,13 +172,16 @@ class KalmanState(object):
 
         try:
             trans_covar = self.transition_covariance(dt)
-            transition_function = functools.partial(self.transition_function, dt=dt)
-            observation_function = functools.partial(self.observation_function, positions=positions)
+            transition_function = functools.partial(self.transition_function,
+                                                    dt=dt)
+            observation_function = functools.partial(self.observation_function,
+                                                     positions=positions)
 
             #
-            # This is extracted from pykalman's AdditiveUnscentedFilter.filter_update()
-            # because we want to access the intermediate (prediction) result to decide
-            # whether to accept this observation or not.
+            # This is extracted from pykalman's
+            # AdditiveUnscentedFilter.filter_update() because we want to access
+            # the intermediate (prediction) result to decide whether to accept
+            # this observation or not.
             #
 
             # make sigma points
@@ -199,20 +213,21 @@ class KalmanState(object):
             # covariance as our expected distribution.
             innovation = obs - obs_moments_pred.mean
             vi = numpy.linalg.inv(obs_moments_pred.covariance)
-            mdsq = numpy.dot(numpy.dot(innovation.T, vi), innovation)
+            md = math.sqrt(numpy.dot(numpy.dot(innovation.T, vi), innovation))
 
-            # If the Mahalanobis distance is very large this observation is an outlier
-            if mdsq > 400:  # 20 std devs
-                glogger.info("{ac.icao:06X} skip innov={innovation} mdsq={mdsq}".format(
-                    ac=self.ac,
+            # If the Mahalanobis distance is very large this observation is an
+            # outlier
+            if md > self.outlier_mahalanobis_distance:
+                glogger.info("{icao:06X} skip innov={innovation} md={md}".format(
+                    icao=self.icao,
                     innovation=innovation,
-                    mdsq=mdsq))
+                    md=md))
 
                 self._outliers += 1
                 if self._outliers < 3 or (position_time - self.last_update) < 15.0:
                     # don't use this one
                     return
-                glogger.info("{ac.icao:06X} reset due to outliers.".format(ac=self.ac))
+                glogger.info("{icao:06X} reset due to outliers.".format(icao=self.icao))
                 self._reset()
                 return
 
@@ -229,13 +244,22 @@ class KalmanState(object):
                 )
             )
 
-            # converged enough to start reporting?
-            if self._acquiring and numpy.trace(self._cov) < 9e6:
-                glogger.info("{ac.icao:06X} acquired.".format(ac=self.ac))
-                self._acquiring = False
-
             self.last_update = position_time
             self._update_derived()
+
+            # converged enough to start reporting?
+            if ((self._acquiring and
+                 self.position_error < self.min_acquiring_position_error and
+                 self.velocity_error < self.min_acquiring_velocity_error)):
+                glogger.info("{icao:06X} acquired.".format(icao=self.icao))
+                self._acquiring = False
+            elif (not self._acquiring and
+                  (self.position_error > self.max_tracking_position_error or
+                   self.velocity_error > self.max_tracking_velocity_error)):
+                glogger.info("{icao:06X} tracking lost".format(icao=self.icao))
+                self._acquiring = True
+
+            self.valid = not self._acquiring
 
         except Exception:
             glogger.exception("Kalman filter update failed. " +
@@ -283,7 +307,7 @@ class KalmanStateCV(KalmanState):
 
         self._mean = numpy.array(list(leastsquares_position) + [0, 0, 0])
         self._cov = numpy.zeros((6, 6))
-        self._cov[0:3, 0:3] = leastsquares_cov
+        self._cov[0:3, 0:3] = leastsquares_cov * 4
         self._cov[3, 3] = self._cov[4, 4] = self._cov[5, 5] = 200**2
 
     def transition_function(self, state, *, dt):
@@ -298,22 +322,20 @@ class KalmanStateCV(KalmanState):
         trans_covar[1, 4] = trans_covar[4, 1] = 0.5*dt**3
         trans_covar[2, 5] = trans_covar[5, 2] = 0.5*dt**3
 
-        # we assume that accel_noise is white noise (uncorrelated) and so
+        # we assume that process_noise is white noise (uncorrelated) and so
         # scale by dt not dt**2 here
-        return trans_covar * self.accel_noise**2 * dt
+        return trans_covar * self.process_noise**2 * dt
 
 
 class KalmanStateCA(KalmanState):
     """Kalman filter with a constant-acceleration model."""
-
-    accel_noise = 0.05   # m/s^2
 
     def set_initial_state(self, leastsquares_position, leastsquares_cov):
         """State is: (position, velocity, acceleration)"""
 
         self._mean = numpy.array(list(leastsquares_position) + [0, 0, 0, 0, 0, 0])
         self._cov = numpy.zeros((9, 9))
-        self._cov[0:3, 0:3] = leastsquares_cov
+        self._cov[0:3, 0:3] = leastsquares_cov * 4
         self._cov[3, 3] = self._cov[4, 4] = self._cov[5, 5] = 200**2
         self._cov[6, 6] = self._cov[7, 7] = self._cov[8, 8] = 1
 
@@ -347,6 +369,6 @@ class KalmanStateCA(KalmanState):
         trans_covar[4, 7] = trans_covar[7, 4] = dt
         trans_covar[5, 8] = trans_covar[8, 5] = dt
 
-        # we assume that accel_noise is white noise (uncorrelated) and so
+        # we assume that process_noise is white noise (uncorrelated) and so
         # scale by dt not dt**2 here
-        return trans_covar * self.accel_noise**2 * dt
+        return trans_covar * self.process_noise**2 * dt
