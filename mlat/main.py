@@ -25,7 +25,7 @@ import logging
 import signal
 import argparse
 
-import mlat.clientio
+import mlat.jsonclient
 import mlat.coordinator
 import mlat.net
 import mlat.output
@@ -138,11 +138,11 @@ class MlatServer(object):
             subtasks.append(mlat.leakcheck.LeakChecker())
 
         for host, tcp_port, udp_port in args.client_listen:
-            subtasks.append(mlat.clientio.JsonClientListener(host=host,
-                                                             tcp_port=tcp_port,
-                                                             udp_port=udp_port,
-                                                             coordinator=self.coordinator,
-                                                             motd=args.motd))
+            subtasks.append(mlat.jsonclient.JsonClientListener(host=host,
+                                                               tcp_port=tcp_port,
+                                                               udp_port=udp_port,
+                                                               coordinator=self.coordinator,
+                                                               motd=args.motd))
 
         for host, port in args.basestation_connect:
             subtasks.append(mlat.output.make_basestation_connector(host=host,
