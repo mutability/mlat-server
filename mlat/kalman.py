@@ -90,7 +90,28 @@ class KalmanState(object):
         self.ground_speed = None    # m/s
         self.vertical_speed = None  # m/s
 
-    def observation_function(self, state, *, positions):
+    def observation_function_without_altitude(self, state, *, positions):
+        """Kalman filter observation function.
+
+        Given state (position,...) and a list of N receiver positions,
+        return N-1 pseudorange observations; the pseudoranges are
+        relative to the first receiver's pseudorange."""
+
+        x, y, z = state[0:3]
+
+        n = len(positions)
+        obs = numpy.zeros(n-1)
+
+        rx, ry, rz = positions[0]
+        zero_range = ((rx - x)**2 + (ry - y)**2 + (rz - z)**2)**0.5
+
+        for i in range(1, n):
+            rx, ry, rz = positions[i]
+            obs[i-1] = ((rx - x)**2 + (ry - y)**2 + (rz - z)**2)**0.5 - zero_range
+
+        return obs
+
+    def observation_function_with_altitude(self, state, *, positions):
         """Kalman filter observation function.
 
         Given state (position,...) and a list of N receiver positions,
@@ -143,12 +164,14 @@ class KalmanState(object):
 
         self.valid = True
 
-    def update(self, position_time, measurements, altitude, leastsquares_position, leastsquares_cov, distinct):
+    def update(self, position_time, measurements, altitude, altitude_error,
+               leastsquares_position, leastsquares_cov, distinct):
         """Update the filter given a new set of observations.
 
         position_time:         the time of these measurements, UTC seconds
         measurements:          a list of (receiver, timestamp, variance) tuples
-        altitude:              reported altitude in meters
+        altitude:              reported altitude in meters, or None
+        altitude_error:        reported altitude error in meters, or None
         leastsquares_position: the ECEF position computed by the least-squares
                                solver
         leastsquares_cov:      the covariance of leastsquares_position
@@ -175,17 +198,30 @@ class KalmanState(object):
         positions = [measurements[0][0].position]
 
         n = len(measurements)
-        obs = numpy.zeros(n)
-        obs_var = numpy.zeros(n)
 
-        obs[0] = altitude
-        obs_var[0] = 50**2
+        if altitude is None:
+            obs_fn = self.observation_function_without_altitude
+            obs = numpy.zeros(n-1)
+            obs_var = numpy.zeros(n-1)
 
-        for i in range(1, n):
-            receiver, timestamp, variance = measurements[i]
-            positions.append(receiver.position)
-            obs[i] = timestamp * mlat.constants.Cair - zero_pr
-            obs_var[i] = (variance + measurements[0][2]) * mlat.constants.Cair**2
+            for i in range(1, n):
+                receiver, timestamp, variance = measurements[i]
+                positions.append(receiver.position)
+                obs[i-1] = timestamp * mlat.constants.Cair - zero_pr
+                obs_var[i-1] = (variance + measurements[0][2]) * mlat.constants.Cair**2
+        else:
+            obs_fn = self.observation_function_with_altitude
+            obs = numpy.zeros(n)
+            obs_var = numpy.zeros(n)
+
+            obs[0] = altitude
+            obs_var[0] = altitude_error**2
+
+            for i in range(1, n):
+                receiver, timestamp, variance = measurements[i]
+                positions.append(receiver.position)
+                obs[i] = timestamp * mlat.constants.Cair - zero_pr
+                obs_var[i] = (variance + measurements[0][2]) * mlat.constants.Cair**2
 
         obs_covar = numpy.diag(obs_var)
 
@@ -197,7 +233,7 @@ class KalmanState(object):
             trans_covar = self.transition_covariance(dt)
             transition_function = functools.partial(self.transition_function,
                                                     dt=dt)
-            observation_function = functools.partial(self.observation_function,
+            observation_function = functools.partial(obs_fn,
                                                      positions=positions)
 
             #

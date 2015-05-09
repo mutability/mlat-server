@@ -137,10 +137,17 @@ class MlatTracker(object):
 
         # find altitude
         if ac.altitude is None:
-            return
-        if now - ac.last_altitude_time > 30.0:
-            return
-        altitude = ac.altitude * mlat.constants.FTOM
+            altitude = altitude_error = None
+            min_receivers = 4
+        else:
+            # assume 250ft accuracy at the time it is reported
+            # (this bundles up both the measurement error, and
+            # that we don't adjust for local pressure)
+            #
+            # Then degrade the accuracy over time at ~4000fpm
+            altitude = ac.altitude * mlat.constants.FTOM
+            altitude_error = (250 + (now - ac.last_altitude_time) * 70) * mlat.constants.FTOM
+            min_receivers = 3 if (altitude_error < 1000) else 4
 
         # construct a map of receiver -> list of timestamps
         timestamp_map = {}
@@ -148,8 +155,8 @@ class MlatTracker(object):
             if receiver.user not in self.blacklist:
                 timestamp_map.setdefault(receiver, []).append(timestamp)
 
-        # need 3 separate receivers at a bare minimum for multilateration
-        if len(timestamp_map) < 3:
+        # check for minimum needed receivers
+        if len(timestamp_map) < min_receivers:
             return
 
         # basic ratelimit before we do more work
@@ -168,7 +175,7 @@ class MlatTracker(object):
         # same transmission.
         clusters = []
         for component in components:
-            if len(component) >= 3:  # don't bother with orphan components at all
+            if len(component) >= min_receivers:  # don't bother with orphan components at all
                 clusters.extend(_cluster_timestamps(component))
 
         if not clusters:
@@ -191,7 +198,7 @@ class MlatTracker(object):
                 break
 
             cluster.sort(key=operator.itemgetter(1))  # sort by increasing timestamp (todo: just assume descending..)
-            r = mlat.solver.solve(cluster, altitude,
+            r = mlat.solver.solve(cluster, altitude, altitude_error,
                                   last_result_position if last_result_position else cluster[0][0].position)
             if r:
                 # estimate the error
@@ -226,7 +233,17 @@ class MlatTracker(object):
         ac.last_result_distinct = distinct
         ac.last_result_time = now
 
-        ac.kalman.update(group.first_seen, cluster, altitude, ecef, ecef_cov, distinct)
+        ac.kalman.update(group.first_seen, cluster, altitude, altitude_error, ecef, ecef_cov, distinct)
+
+        if min_receivers > 3:
+            _, _, solved_alt = mlat.geodesy.ecef2llh(ecef)
+            alt = 'missing' if (altitude is None) else '{0:.0f}'.format(altitude * mlat.constants.MTOF)
+            alterr = 'missing' if (altitude is None) else '{0:.0f}'.format(altitude_error * mlat.constants.MTOF)
+            glogger.info("{addr:06x} solved altitude={solved_alt:.0f}ft from alt={alt} err={alterr}".format(
+                addr=decoded.address,
+                solved_alt=solved_alt*mlat.constants.MTOF,
+                alt=alt,
+                alterr=alterr))
 
         for handler in self.coordinator.output_handlers:
             handler(group.first_seen, decoded.address,
@@ -258,9 +275,12 @@ class MlatTracker(object):
                                   round(ecef_cov[2, 0], 0),
                                   round(ecef_cov[2, 1], 0),
                                   round(ecef_cov[2, 2], 0)],
-                     'altitude': round(altitude, 0),
                      'distinct': distinct,
                      'cluster': cluster_state}
+
+            if altitude is not None:
+                state['altitude'] = round(altitude, 0)
+                state['altitude_error'] = round(altitude_error, 0)
 
             json.dump(state, self.pseudorange_file)
             self.pseudorange_file.write('\n')

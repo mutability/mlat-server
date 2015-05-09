@@ -36,7 +36,7 @@ from mlat.constants import Cair
 glogger = logging.getLogger("solver")
 
 
-def _residuals(x_guess, pseudorange_data, altitude):
+def _residuals(x_guess, pseudorange_data, altitude, altitude_error):
     """Return an array of residuals for a position guess at x_guess versus
     actual measurements pseudorange_data and altitude."""
 
@@ -50,20 +50,22 @@ def _residuals(x_guess, pseudorange_data, altitude):
         res.append((pseudorange - pseudorange_guess) / error)
 
     # compute altitude at the current guess vs. measured altitude
-    _, _, altitude_guess = geodesy.ecef2llh(position_guess)
-    res.append((altitude - altitude_guess) / 150)  # hardcoded error estimate, ~500ft
+    if altitude is not None:
+        _, _, altitude_guess = geodesy.ecef2llh(position_guess)
+        res.append((altitude - altitude_guess) / altitude_error)
 
     return res
 
 
-def solve(measurements, altitude, initial_guess):
+def solve(measurements, altitude, altitude_error, initial_guess):
     """Given a set of receive timestamps, multilaterate the position of the transmitter.
 
     measurements: a list of (receiver, timestamp, error) tuples. Should be sorted by timestamp.
       receiver.position should be the ECEF position of the receiver
       timestamp should be a reception time in seconds (with an arbitrary epoch)
       variance should be the estimated variance of timestamp
-    altitude: the reported altitude of the transmitter in _meters_
+    altitude: the reported altitude of the transmitter in _meters_, or None
+    altitude_error: the estimated error in altitude in meters, or None
     initial_guess: an ECEF position to start the solver from
 
     Returns None on failure, or (ecef, ecef_cov) on success, with:
@@ -79,7 +81,7 @@ def solve(measurements, altitude, initial_guess):
     x_est, cov_x, infodict, mesg, ler = scipy.optimize.leastsq(
         _residuals,
         x_guess,
-        args=(pseudorange_data, altitude),
+        args=(pseudorange_data, altitude, altitude_error),
         full_output=True,
         maxfev=mlat.config.SOLVER_MAXFEV)
 
