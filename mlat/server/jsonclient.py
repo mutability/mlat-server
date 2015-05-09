@@ -556,6 +556,9 @@ class JsonClient(connection.Connection):
         day_seconds = t / self.receiver.clock.freq
         utc = start_of_day + day_seconds
 
+        # off by one error?
+        utc -= 1
+
         # handle values close to rollover
         if day_seconds > 86000 and (utc - now) > 85000:
             # it's a value from yesterday that arrived after rollover
