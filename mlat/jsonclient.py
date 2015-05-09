@@ -306,7 +306,7 @@ class JsonClient(mlat.connection.Connection):
             deny = 'Badly formatted handshake: ' + str(e)
         else:
             try:
-                if hs['version'] != 2:
+                if hs['version'] != 2 and hs['version'] != 3:
                     raise ValueError('Unsupported version in handshake')
 
                 user = str(hs['user'])
