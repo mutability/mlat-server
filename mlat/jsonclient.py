@@ -338,12 +338,6 @@ class JsonClient(mlat.connection.Connection):
 
                 clock_type = str(hs.get('clock_type', 'dump1090'))
 
-                if not hs.get('heartbeat', False):
-                    raise ValueError('must use heartbeats')
-
-                if not hs.get('selective_traffic', False):
-                    raise ValueError('must use selective traffic')
-
                 self.use_return_results = bool(hs.get('return_results', False))
                 if self.use_return_results:
                     return_result_format = hs.get('return_result_format', 'old')
