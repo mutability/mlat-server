@@ -30,6 +30,7 @@ import random
 import socket
 import inspect
 import sys
+import math
 
 from mlat import constants, geodesy
 from mlat.server import net, util, connection, config
@@ -117,6 +118,7 @@ class PackedMlatServerProtocol(asyncio.DatagramProtocol):
         try:
             key, seq, base = self.STRUCT_HEADER.unpack_from(data, 0)
             sync_handler, mlat_handler = self.clients[key]  # KeyError on bad client key
+            utc = time.time()
 
             i = self.STRUCT_HEADER.size
             while i < len(data):
@@ -131,12 +133,12 @@ class PackedMlatServerProtocol(asyncio.DatagramProtocol):
                 elif typebyte == self.TYPE_MLAT_SHORT:
                     t, m = self.STRUCT_MLAT_SHORT.unpack_from(data, i)
                     i += self.STRUCT_MLAT_SHORT.size
-                    mlat_handler(base + t, m)
+                    mlat_handler(base + t, m, utc)
 
                 elif typebyte == self.TYPE_MLAT_LONG:
                     t, m = self.STRUCT_MLAT_LONG.unpack_from(data, i)
                     i += self.STRUCT_MLAT_LONG.size
-                    mlat_handler(base + t, m)
+                    mlat_handler(base + t, m, utc)
 
                 elif typebyte == self.TYPE_REBASE:
                     base, = self.STRUCT_REBASE.unpack_from(data, i)
@@ -356,6 +358,11 @@ class JsonClient(connection.Connection):
                                                               position_llh=(lat, lon, alt),
                                                               privacy=bool(hs.get('privacy', False)))
 
+                if self.receiver.clock.epoch == 'gps_midnight':
+                    self.process_mlat = self.process_mlat_gps
+                else:
+                    self.process_mlat = self.process_mlat_nongps
+
             except KeyError as e:
                 deny = 'Missing field in handshake: ' + str(e)
 
@@ -520,7 +527,7 @@ class JsonClient(connection.Connection):
                               bytes.fromhex(sync['om']))
         elif 'mlat' in msg:
             mlat = msg['mlat']
-            self.process_mlat(float(mlat['t']), bytes.fromhex(mlat['m']))
+            self.process_mlat(float(mlat['t']), bytes.fromhex(mlat['m']), time.time())
         elif 'seen' in msg:
             self.process_seen_message(msg['seen'])
         elif 'lost' in msg:
@@ -543,8 +550,28 @@ class JsonClient(connection.Connection):
     def process_sync(self, et, ot, em, om):
         self.coordinator.receiver_sync(self.receiver, et, ot, em, om)
 
-    def process_mlat(self, t, m):
-        self.coordinator.receiver_mlat(self.receiver, t, m)
+    def process_mlat_gps(self, t, m, now):
+        # extract UTC receive time from Radarcape timestamps
+        start_of_day = now - math.fmod(now, 86400)
+        day_seconds = t / self.receiver.clock.freq
+        utc = start_of_day + day_seconds
+
+        # handle values close to rollover
+        if day_seconds > 86000 and (utc - now) > 85000:
+            # it's a value from yesterday that arrived after rollover
+            utc -= 86400
+
+        if abs(now - utc) > 1.0:
+            glogger.info('{0} GPS/UTC difference server={1:.3f} vs message={2:.3f}'.format(
+                self.receiver,
+                now,
+                utc))
+
+        self.coordinator.receiver_mlat(self.receiver, t, m, utc)
+
+    def process_mlat_nongps(self, t, m, now):
+        # we assume the server system clock is close to UTC
+        self.coordinator.receiver_mlat(self.receiver, t, m, now)
 
     def process_seen_message(self, seen):
         seen = {int(icao, 16) for icao in seen}

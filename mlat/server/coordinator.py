@@ -212,11 +212,12 @@ class Coordinator(object):
                                          even_time, odd_time,
                                          even_message, odd_message)
 
-    def receiver_mlat(self, receiver, timestamp, message):
+    def receiver_mlat(self, receiver, timestamp, message, utc):
         """Receive a message for multilateration."""
         self.mlat_tracker.receiver_mlat(receiver,
                                         timestamp,
-                                        message)
+                                        message,
+                                        utc)
 
     def receiver_tracking_add(self, receiver, icao_set):
         """Update a receiver's tracking set by adding some aircraft."""

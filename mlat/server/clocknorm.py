@@ -104,8 +104,8 @@ def _convert_timestamps(g, timestamp_map, predictor_map, node, results, conversi
     chain of clocksync objects in conversion_chain, populating the results dict.
 
     node: the root node to convert
-    timestamp_map: dict of node -> list of timestamps to convert
-    results: dict of node -> list of (variance, converted timestamp) tuples to populate
+    timestamp_map: dict of node -> [(timestamp, utc), ...] to convert
+    results: dict of node -> (variance, [(converted timestamp, utc), ...])
     conversion_chain: list of predictor tuples to apply to node, in order
     variance: the total error introduced by chain: sum([p.variance for p in chain])
     """
@@ -113,10 +113,10 @@ def _convert_timestamps(g, timestamp_map, predictor_map, node, results, conversi
     # convert our own timestamp using the provided chain
     r = []
     results[node] = (variance, r)   # also used as a visited-map
-    for ts in timestamp_map[node]:
+    for ts, utc in timestamp_map[node]:
         for predictor in conversion_chain:
             ts = predictor.predict(ts)
-        r.append(ts)
+        r.append((ts, utc))
 
     # convert all reachable unvisited nodes using a conversion to our timestamp
     # followed by the provided chain
@@ -131,9 +131,11 @@ def _convert_timestamps(g, timestamp_map, predictor_map, node, results, conversi
 
 def normalize(clocktracker, timestamp_map):
     """
-    Given a map of stations to (lists of) timestamps from those stations,
-    return a list of maps with timestamps normalized to some arbitrary base timescale.
-    One map is returned per connected subgraph."""
+    Given {receiver: [(timestamp, utc), ...]}
+
+    return [{receiver: (variance, [(timestamp, utc), ...])}, ...]
+    where timestamps are normalized to some arbitrary base timescale within each map;
+    one map is returned per connected subgraph."""
 
     # Represent the stations as a weighted graph where there
     # is an edge between S0 and S1 with weight W if we have a
