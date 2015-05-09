@@ -28,11 +28,10 @@ import functools
 import time
 import logging
 
-import modes
-from mlat import geodesy
-from mlat import clocksync
-from mlat.config import MAX_RANGE, MAX_INTERMESSAGE_RANGE
-from mlat.constants import FTOM, Cair
+import modes.message
+
+from mlat import geodesy, constants
+from mlat.server import clocksync, config
 
 
 class SyncPoint(object):
@@ -220,19 +219,19 @@ class ClockTracker(object):
         # convert to ECEF, do range checks
         even_ecef = geodesy.llh2ecef((even_lat,
                                       even_lon,
-                                      even_message.altitude * FTOM))
-        if geodesy.ecef_distance(even_ecef, receiver.position) > MAX_RANGE:
+                                      even_message.altitude * constants.FTOM))
+        if geodesy.ecef_distance(even_ecef, receiver.position) > config.MAX_RANGE:
             logging.info("{a:06X}: receiver range check (even) failed".format(a=even_message.address))
             return
 
         odd_ecef = geodesy.llh2ecef((odd_lat,
                                      odd_lon,
-                                     odd_message.altitude * FTOM))
-        if geodesy.ecef_distance(odd_ecef, receiver.position) > MAX_RANGE:
+                                     odd_message.altitude * constants.FTOM))
+        if geodesy.ecef_distance(odd_ecef, receiver.position) > config.MAX_RANGE:
             logging.info("{a:06X}: receiver range check (odd) failed".format(a=odd_message.address))
             return
 
-        if geodesy.ecef_distance(even_ecef, odd_ecef) > MAX_INTERMESSAGE_RANGE:
+        if geodesy.ecef_distance(even_ecef, odd_ecef) > config.MAX_INTERMESSAGE_RANGE:
             logging.info("{a:06X}: intermessage range check failed".format(a=even_message.address))
             return
 
@@ -317,10 +316,10 @@ class ClockTracker(object):
             self.clock_pairs[k] = pairing = clocksync.ClockPairing(r0, r1)
 
         # propagation delays, in clock units
-        delay0A = geodesy.ecef_distance(posA, r0.position) * r0.clock.freq / Cair
-        delay0B = geodesy.ecef_distance(posB, r0.position) * r0.clock.freq / Cair
-        delay1A = geodesy.ecef_distance(posA, r1.position) * r1.clock.freq / Cair
-        delay1B = geodesy.ecef_distance(posB, r1.position) * r1.clock.freq / Cair
+        delay0A = geodesy.ecef_distance(posA, r0.position) * r0.clock.freq / constants.Cair
+        delay0B = geodesy.ecef_distance(posB, r0.position) * r0.clock.freq / constants.Cair
+        delay1A = geodesy.ecef_distance(posA, r1.position) * r1.clock.freq / constants.Cair
+        delay1B = geodesy.ecef_distance(posB, r1.position) * r1.clock.freq / constants.Cair
 
         # compute intervals, adjusted for transmitter motion
         i0 = (t0B - delay0B) - (t0A - delay0A)

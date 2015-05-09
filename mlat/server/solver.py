@@ -26,9 +26,8 @@ import math
 
 import scipy.optimize
 
-import mlat.config
-from mlat import geodesy
-from mlat.constants import Cair
+from mlat import geodesy, constants
+from mlat.server import config
 
 # The core of it all. Not very big, is it?
 # (Admittedly the entire least-squares solver is hidden within scipy..)
@@ -78,7 +77,9 @@ def solve(measurements, altitude, altitude_error, initial_guess):
         raise ValueError('Not enough measurements available')
 
     base_timestamp = measurements[0][1]
-    pseudorange_data = [(receiver.position, (timestamp - base_timestamp) * Cair, math.sqrt(variance) * Cair)
+    pseudorange_data = [(receiver.position,
+                         (timestamp - base_timestamp) * constants.Cair,
+                         math.sqrt(variance) * constants.Cair)
                         for receiver, timestamp, variance in measurements]
     x_guess = [initial_guess[0], initial_guess[1], initial_guess[2], 0.0]
     x_est, cov_x, infodict, mesg, ler = scipy.optimize.leastsq(
@@ -86,7 +87,7 @@ def solve(measurements, altitude, altitude_error, initial_guess):
         x_guess,
         args=(pseudorange_data, altitude, altitude_error),
         full_output=True,
-        maxfev=mlat.config.SOLVER_MAXFEV)
+        maxfev=config.SOLVER_MAXFEV)
 
     if ler in (1, 2, 3, 4):
         #glogger.info("solver success: {0} {1}".format(ler, mesg))
@@ -95,14 +96,14 @@ def solve(measurements, altitude, altitude_error, initial_guess):
         # some sort of physical sense.
         (*position_est, offset_est) = x_est
 
-        if offset_est < 0 or offset_est > mlat.config.MAX_RANGE:
+        if offset_est < 0 or offset_est > config.MAX_RANGE:
             #glogger.info("solver: bad offset: {0}".formaT(offset_est))
             # implausible range offset to closest receiver
             return None
 
         for receiver, timestamp, variance in measurements:
             d = geodesy.ecef_distance(receiver.position, position_est)
-            if d > mlat.config.MAX_RANGE:
+            if d > config.MAX_RANGE:
                 # too far from this receiver
                 #glogger.info("solver: bad range: {0}".format(d))
                 return None

@@ -18,7 +18,7 @@
 
 """Poor man's configuration system, because I'm lazy.."""
 
-import mlat.constants
+from mlat import constants
 
 # Location at which _this copy_ of the server code may be found. This URL will
 # be sent to network clients. Remember to uncomment this after updating it.
@@ -41,7 +41,7 @@ MAX_RANGE = 500e3
 MAX_INTERMESSAGE_RANGE = 10e3
 
 # absolute maximum altitude, metres
-MAX_ALT = 50000 * mlat.constants.FTOM
+MAX_ALT = 50000 * constants.FTOM
 
 # how long to wait to accumulate messages before doing multilateration, seconds
 MLAT_DELAY = 2.5

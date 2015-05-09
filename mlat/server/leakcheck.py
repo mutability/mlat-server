@@ -49,7 +49,7 @@ import gc
 import logging
 import operator
 
-import mlat.util
+from mlat.server import util
 
 try:
     import objgraph
@@ -69,7 +69,7 @@ class LeakChecker(object):
         else:
             self._task = asyncio.async(self.checker())
 
-        return mlat.util.completed_future
+        return util.completed_future
 
     def close(self):
         if self._task:
@@ -77,7 +77,7 @@ class LeakChecker(object):
 
     @asyncio.coroutine
     def wait_closed(self):
-        yield from mlat.util.safe_wait([self._task])
+        yield from util.safe_wait([self._task])
 
     @asyncio.coroutine
     def checker(self):

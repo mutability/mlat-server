@@ -25,12 +25,7 @@ import logging
 import signal
 import argparse
 
-import mlat.jsonclient
-import mlat.coordinator
-import mlat.net
-import mlat.output
-
-import mlat.leakcheck
+from mlat.server import jsonclient, output, coordinator, leakcheck
 
 
 def hostport(s):
@@ -135,42 +130,42 @@ class MlatServer(object):
         subtasks = [self.coordinator]
 
         if args.check_leaks:
-            subtasks.append(mlat.leakcheck.LeakChecker())
+            subtasks.append(leakcheck.LeakChecker())
 
         for host, tcp_port, udp_port in args.client_listen:
-            subtasks.append(mlat.jsonclient.JsonClientListener(host=host,
-                                                               tcp_port=tcp_port,
-                                                               udp_port=udp_port,
-                                                               coordinator=self.coordinator,
-                                                               motd=args.motd))
+            subtasks.append(jsonclient.JsonClientListener(host=host,
+                                                          tcp_port=tcp_port,
+                                                          udp_port=udp_port,
+                                                          coordinator=self.coordinator,
+                                                          motd=args.motd))
 
         for host, port in args.basestation_connect:
-            subtasks.append(mlat.output.make_basestation_connector(host=host,
-                                                                   port=port,
-                                                                   coordinator=self.coordinator,
-                                                                   use_kalman_data=False))
+            subtasks.append(output.make_basestation_connector(host=host,
+                                                              port=port,
+                                                              coordinator=self.coordinator,
+                                                              use_kalman_data=False))
 
         for host, port in args.basestation_listen:
-            subtasks.append(mlat.output.make_basestation_listener(host=host,
-                                                                  port=port,
-                                                                  coordinator=self.coordinator,
-                                                                  use_kalman_data=False))
+            subtasks.append(output.make_basestation_listener(host=host,
+                                                             port=port,
+                                                             coordinator=self.coordinator,
+                                                             use_kalman_data=False))
 
         for host, port in args.filtered_basestation_connect:
-            subtasks.append(mlat.output.make_basestation_connector(host=host,
-                                                                   port=port,
-                                                                   coordinator=self.coordinator,
-                                                                   use_kalman_data=True))
+            subtasks.append(output.make_basestation_connector(host=host,
+                                                              port=port,
+                                                              coordinator=self.coordinator,
+                                                              use_kalman_data=True))
 
         for host, port in args.filtered_basestation_listen:
-            subtasks.append(mlat.output.make_basestation_listener(host=host,
-                                                                  port=port,
-                                                                  coordinator=self.coordinator,
-                                                                  use_kalman_data=True))
+            subtasks.append(output.make_basestation_listener(host=host,
+                                                             port=port,
+                                                             coordinator=self.coordinator,
+                                                             use_kalman_data=True))
 
         for filename in args.write_csv:
-            subtasks.append(mlat.output.LocalCSVWriter(coordinator=self.coordinator,
-                                                       filename=filename))
+            subtasks.append(output.LocalCSVWriter(coordinator=self.coordinator,
+                                                  filename=filename))
 
         return subtasks
 
@@ -181,7 +176,7 @@ class MlatServer(object):
     def run(self):
         args = self.make_arg_parser().parse_args()
 
-        self.coordinator = mlat.coordinator.Coordinator(pseudorange_filename=args.dump_pseudorange)
+        self.coordinator = coordinator.Coordinator(pseudorange_filename=args.dump_pseudorange)
 
         subtasks = self.make_subtasks(args)
 

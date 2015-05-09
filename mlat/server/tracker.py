@@ -23,7 +23,7 @@ send us traffic for thise.
 """
 
 import asyncio
-import mlat.kalman
+from mlat.server import kalman
 
 
 class TrackedAircraft(object):
@@ -61,7 +61,7 @@ class TrackedAircraft(object):
         # last multilateration, distinct receivers
         self.last_result_distinct = None
         # kalman filter state
-        self.kalman = mlat.kalman.KalmanStateCA(self.icao)
+        self.kalman = kalman.KalmanStateCA(self.icao)
 
         self.callsign = None
         self.squawk = None

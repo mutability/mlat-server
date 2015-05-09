@@ -24,7 +24,7 @@ import asyncio
 import logging
 import socket
 
-import mlat.util
+from mlat.server import util
 
 
 glogger = logging.getLogger("net")
@@ -98,7 +98,7 @@ class MonitoringListener(object):
 
     @asyncio.coroutine
     def wait_closed(self):
-        yield from mlat.util.safe_wait(self.monitoring)
+        yield from util.safe_wait(self.monitoring)
         if self.tcp_server:
             yield from self.tcp_server.wait_closed()
 
@@ -118,7 +118,7 @@ class MonitoringConnector(object):
             self.started = True
             self.reconnect_task = asyncio.async(self.reconnect())
 
-        return mlat.util.completed_future
+        return util.completed_future
 
     @asyncio.coroutine
     def reconnect(self):
@@ -145,6 +145,6 @@ class MonitoringConnector(object):
 
     @asyncio.coroutine
     def wait_closed(self):
-        yield from mlat.util.safe_wait([self.reconnect_task])
+        yield from util.safe_wait([self.reconnect_task])
         if self.client:
             yield from self.client.wait_closed()

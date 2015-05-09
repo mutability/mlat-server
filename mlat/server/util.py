@@ -33,6 +33,11 @@ completed_future.set_result(True)
 
 
 def safe_wait(coros_or_futures, **kwargs):
+    """Return a future that waits for all coroutines/futures in the given
+    list to complete. Equivalent to asyncio.wait, except that the list may
+    safely contain None (these values are ignored) or be entirely empty. If
+    there is nothing to wait for, an already-completed future is returned."""
+
     l = []
     for coro_or_future in coros_or_futures:
         if coro_or_future is not None:

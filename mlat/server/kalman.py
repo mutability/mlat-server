@@ -27,8 +27,7 @@ import pykalman.unscented
 import functools
 import logging
 
-import mlat.geodesy
-import mlat.constants
+from mlat import geodesy, constants
 
 glogger = logging.getLogger("kalman")
 
@@ -123,7 +122,7 @@ class KalmanState(object):
         n = len(positions)
         obs = numpy.zeros(n)
 
-        _, _, obs[0] = mlat.geodesy.ecef2llh((x, y, z))
+        _, _, obs[0] = geodesy.ecef2llh((x, y, z))
 
         rx, ry, rz = positions[0]
         zero_range = ((rx - x)**2 + (ry - y)**2 + (rz - z)**2)**0.5
@@ -145,11 +144,11 @@ class KalmanState(object):
         ve = numpy.trace(self._cov[3:6, 3:6])
         self.velocity_error = 1e6 if ve < 0 else math.sqrt(ve)
 
-        lat, lon, alt = self.position_llh = mlat.geodesy.ecef2llh(self.position)
+        lat, lon, alt = self.position_llh = geodesy.ecef2llh(self.position)
 
         # rotate velocity into the local tangent plane
-        lat_r = lat * mlat.constants.DTOR
-        lon_r = lon * mlat.constants.DTOR
+        lat_r = lat * constants.DTOR
+        lon_r = lon * constants.DTOR
         C = numpy.array([[-math.sin(lon_r), math.cos(lon_r), 0],
                          [math.sin(-lat_r) * math.cos(lon_r), math.sin(-lat_r) * math.sin(lon_r), math.cos(-lat_r)],
                          [math.cos(-lat_r) * math.cos(lon_r), math.cos(-lat_r) * math.sin(lon_r), -math.sin(-lat_r)]])
@@ -194,7 +193,7 @@ class KalmanState(object):
             return
 
         # update filter
-        zero_pr = measurements[0][1] * mlat.constants.Cair
+        zero_pr = measurements[0][1] * constants.Cair
         positions = [measurements[0][0].position]
 
         n = len(measurements)
@@ -207,8 +206,8 @@ class KalmanState(object):
             for i in range(1, n):
                 receiver, timestamp, variance = measurements[i]
                 positions.append(receiver.position)
-                obs[i-1] = timestamp * mlat.constants.Cair - zero_pr
-                obs_var[i-1] = (variance + measurements[0][2]) * mlat.constants.Cair**2
+                obs[i-1] = timestamp * constants.Cair - zero_pr
+                obs_var[i-1] = (variance + measurements[0][2]) * constants.Cair**2
         else:
             obs_fn = self.observation_function_with_altitude
             obs = numpy.zeros(n)
@@ -220,8 +219,8 @@ class KalmanState(object):
             for i in range(1, n):
                 receiver, timestamp, variance = measurements[i]
                 positions.append(receiver.position)
-                obs[i] = timestamp * mlat.constants.Cair - zero_pr
-                obs_var[i] = (variance + measurements[0][2]) * mlat.constants.Cair**2
+                obs[i] = timestamp * constants.Cair - zero_pr
+                obs_var[i] = (variance + measurements[0][2]) * constants.Cair**2
 
         obs_covar = numpy.diag(obs_var)
 

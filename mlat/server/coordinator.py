@@ -27,11 +27,8 @@ import json
 import logging
 from contextlib import closing
 
-import mlat.tracker
-import mlat.clocksync
-import mlat.clocktrack
-import mlat.mlattrack
-import mlat.geodesy
+from mlat import geodesy
+from mlat.server import tracker, clocksync, clocktrack, mlattrack, util
 
 glogger = logging.getLogger("coordinator")
 
@@ -45,7 +42,7 @@ class Receiver(object):
         self.connection = connection
         self.clock = clock
         self.position_llh = position_llh
-        self.position = mlat.geodesy.llh2ecef(position_llh)
+        self.position = geodesy.llh2ecef(position_llh)
         self.privacy = privacy
         self.dead = False
 
@@ -105,14 +102,14 @@ class Coordinator(object):
         self.receivers = {}    # keyed by username
         self.sighup_handlers = []
         self.authenticator = authenticator
-        self.tracker = mlat.tracker.Tracker()
-        self.clock_tracker = mlat.clocktrack.ClockTracker()
-        self.mlat_tracker = mlat.mlattrack.MlatTracker(self, pseudorange_filename=pseudorange_filename)
+        self.tracker = tracker.Tracker()
+        self.clock_tracker = clocktrack.ClockTracker()
+        self.mlat_tracker = mlattrack.MlatTracker(self, pseudorange_filename=pseudorange_filename)
         self.output_handlers = [self.forward_results]
 
     def start(self):
         self._write_state_task = asyncio.async(self.write_state())
-        return mlat.util.completed_future
+        return util.completed_future
 
     def add_output_handler(self, handler):
         self.output_handlers.append(handler)
@@ -166,7 +163,7 @@ class Coordinator(object):
 
     @asyncio.coroutine
     def wait_closed(self):
-        mlat.util.safe_wait([self._write_state_task])
+        util.safe_wait([self._write_state_task])
 
     def new_receiver(self, connection, user, auth, position_llh, clock_type, privacy):
         """Assigns a new receiver ID for a given user.
@@ -177,7 +174,7 @@ class Coordinator(object):
         if user in self.receivers:
             raise ValueError('User {user} is already connected'.format(user=user))
 
-        clock = mlat.clocksync.make_clock(clock_type)
+        clock = clocksync.make_clock(clock_type)
         receiver = Receiver(user, connection, clock,
                             position_llh=position_llh,
                             privacy=privacy)
@@ -188,7 +185,7 @@ class Coordinator(object):
         # compute inter-station distances
         receiver.distance[receiver] = 0
         for other_receiver in self.receivers.values():
-            distance = mlat.geodesy.ecef_distance(receiver.position, other_receiver.position)
+            distance = geodesy.ecef_distance(receiver.position, other_receiver.position)
             receiver.distance[other_receiver] = distance
             other_receiver.distance[receiver] = distance
 

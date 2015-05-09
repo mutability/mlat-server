@@ -24,9 +24,8 @@ import functools
 import socket
 import numpy
 
-import mlat.constants
-import mlat.geodesy
-import mlat.util
+from mlat import constants, geodesy
+from mlat.server import util, net
 
 """
 Various output methods for multilateration results.
@@ -65,7 +64,7 @@ class LocalCSVWriter(object):
         self.coordinator.add_sighup_handler(self.reopen)
 
     def start(self):
-        return mlat.util.completed_future
+        return util.completed_future
 
     def close(self):
         self.coordinator.remove_output_handler(self.write_result)
@@ -73,7 +72,7 @@ class LocalCSVWriter(object):
         self.f.close()
 
     def wait_closed(self):
-        return mlat.util.completed_future
+        return util.completed_future
 
     def reopen(self):
         try:
@@ -85,7 +84,7 @@ class LocalCSVWriter(object):
 
     def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct, kalman_state):
         try:
-            lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
+            lat, lon, alt = geodesy.ecef2llh(ecef)
 
             ac = self.coordinator.tracker.aircraft[address]
             callsign = ac.callsign
@@ -108,17 +107,17 @@ class LocalCSVWriter(object):
                     squawk=csv_quote(squawk),
                     lat=lat,
                     lon=lon,
-                    alt=alt * mlat.constants.MTOF,
+                    alt=alt * constants.MTOF,
                     err=err_est,
                     n=len(receivers),
                     d=distinct,
                     receivers=csv_quote(','.join([receiver.user for receiver in receivers])),
                     klat=kalman_state.position_llh[0],
                     klon=kalman_state.position_llh[1],
-                    kalt=kalman_state.position_llh[2] * mlat.constants.MTOF,
+                    kalt=kalman_state.position_llh[2] * constants.MTOF,
                     kheading=kalman_state.heading,
-                    kspeed=kalman_state.ground_speed * mlat.constants.MS_TO_KTS,
-                    kvrate=kalman_state.vertical_speed * mlat.constants.MS_TO_FPM,
+                    kspeed=kalman_state.ground_speed * constants.MS_TO_KTS,
+                    kvrate=kalman_state.vertical_speed * constants.MS_TO_FPM,
                     kerr=kalman_state.position_error)
             else:
                 line = self.TEMPLATE.format(
@@ -128,7 +127,7 @@ class LocalCSVWriter(object):
                     squawk=csv_quote(squawk),
                     lat=lat,
                     lon=lon,
-                    alt=alt * mlat.constants.MTOF,
+                    alt=alt * constants.MTOF,
                     err=err_est,
                     n=len(receivers),
                     d=distinct,
@@ -150,9 +149,9 @@ class BasestationClient(object):
         peer = writer.get_extra_info('peername')
         self.host = peer[0]
         self.port = peer[1]
-        self.logger = mlat.util.TaggingLogger(logging.getLogger("basestation"),
-                                              {'tag': '{host}:{port}'.format(host=self.host,
-                                                                             port=self.port)})
+        self.logger = util.TaggingLogger(logging.getLogger("basestation"),
+                                         {'tag': '{host}:{port}'.format(host=self.host,
+                                                                        port=self.port)})
         self.reader = reader
         self.writer = writer
         self.coordinator = coordinator
@@ -177,7 +176,7 @@ class BasestationClient(object):
 
     @asyncio.coroutine
     def wait_closed(self):
-        yield from mlat.util.safe_wait([self.heartbeat_task, self.reader_task])
+        yield from util.safe_wait([self.heartbeat_task, self.reader_task])
 
     @asyncio.coroutine
     def read_until_eof(self):
@@ -217,11 +216,11 @@ class BasestationClient(object):
                     return
 
                 lat, lon, alt = kalman_data.position_llh
-                speed = int(round(kalman_data.ground_speed * mlat.constants.MS_TO_KTS))
+                speed = int(round(kalman_data.ground_speed * constants.MS_TO_KTS))
                 heading = int(round(kalman_data.heading))
-                vrate = int(round(kalman_data.vertical_speed * mlat.constants.MS_TO_FPM))
+                vrate = int(round(kalman_data.vertical_speed * constants.MS_TO_FPM))
             else:
-                lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
+                lat, lon, alt = geodesy.ecef2llh(ecef)
                 speed = ''
                 heading = ''
                 vrate = ''
@@ -229,7 +228,7 @@ class BasestationClient(object):
             ac = self.coordinator.tracker.aircraft[address]
             callsign = ac.callsign
             squawk = ac.squawk
-            altitude = int(round(alt * mlat.constants.MTOF))
+            altitude = int(round(alt * constants.MTOF))
             send_timestamp = time.time()
 
             line = self.TEMPLATE.format(mtype=3,
@@ -259,14 +258,14 @@ class BasestationClient(object):
 
 
 def make_basestation_listener(host, port, coordinator, use_kalman_data):
-    return mlat.net.MonitoringListener(host, port,
-                                       functools.partial(BasestationClient,
-                                                         coordinator=coordinator,
-                                                         use_kalman_data=use_kalman_data))
+    return net.MonitoringListener(host, port,
+                                  functools.partial(BasestationClient,
+                                                    coordinator=coordinator,
+                                                    use_kalman_data=use_kalman_data))
 
 
 def make_basestation_connector(host, port, coordinator, use_kalman_data):
-    return mlat.net.MonitoringConnector(host, port, 30.0,
-                                        functools.partial(BasestationClient,
-                                                          coordinator=coordinator,
-                                                          use_kalman_data=use_kalman_data))
+    return net.MonitoringConnector(host, port, 30.0,
+                                   functools.partial(BasestationClient,
+                                                     coordinator=coordinator,
+                                                     use_kalman_data=use_kalman_data))

@@ -31,17 +31,14 @@ import socket
 import inspect
 import sys
 
-import mlat.net
-import mlat.util
-import mlat.geodesy
-import mlat.connection
-import mlat.constants
+from mlat import constants, geodesy
+from mlat.server import net, util, connection, config
 
 
 glogger = logging.getLogger("client")
 
 
-class JsonClientListener(mlat.net.MonitoringListener):
+class JsonClientListener(net.MonitoringListener):
     def __init__(self, host, tcp_port, udp_port, motd, coordinator):
         super().__init__(host, tcp_port, None, logger=glogger)
         self.coordinator = coordinator
@@ -160,7 +157,7 @@ class PackedMlatServerProtocol(asyncio.DatagramProtocol):
             pass
 
 
-class JsonClient(mlat.connection.Connection):
+class JsonClient(connection.Connection):
     write_heartbeat_interval = 30.0
     read_heartbeat_interval = 150.0
 
@@ -176,9 +173,9 @@ class JsonClient(mlat.connection.Connection):
         self.udp_host = udp_host
         self.udp_port = udp_port
 
-        self.logger = mlat.util.TaggingLogger(glogger,
-                                              {'tag': '{host}:{port}'.format(host=self.host,
-                                                                             port=self.port)})
+        self.logger = util.TaggingLogger(glogger,
+                                         {'tag': '{host}:{port}'.format(host=self.host,
+                                                                        port=self.port)})
 
         self.receiver = None
 
@@ -233,7 +230,7 @@ class JsonClient(mlat.connection.Connection):
 
     @asyncio.coroutine
     def wait_closed(self):
-        yield from mlat.util.safe_wait([self._read_task, self._heartbeat_task])
+        yield from util.safe_wait([self._read_task, self._heartbeat_task])
 
     @asyncio.coroutine
     def handle_heartbeats(self):
@@ -367,7 +364,7 @@ class JsonClient(mlat.connection.Connection):
 
         if deny:
             self.logger.info('Handshake failed: %s', deny)
-            self.write_raw(deny=[deny], reconnect_in=mlat.util.fuzzy(900))
+            self.write_raw(deny=[deny], reconnect_in=util.fuzzy(900))
             return False
 
         expanded_motd = """
@@ -378,11 +375,11 @@ class JsonClient(mlat.connection.Connection):
         the terms of the Affero GPL (v3 or later). You may obtain
         a copy of this server's source code at the following
         location: {agpl_url}
-        """.format(agpl_url=mlat.config.AGPL_SERVER_CODE_URL,
+        """.format(agpl_url=config.AGPL_SERVER_CODE_URL,
                    motd=self.motd)
 
         response = {"compress": self.compress,
-                    "reconnect_in": mlat.util.fuzzy(15),
+                    "reconnect_in": util.fuzzy(15),
                     "selective_traffic": True,
                     "heartbeat": True,
                     "return_results": self.use_return_results,
@@ -403,7 +400,7 @@ class JsonClient(mlat.connection.Connection):
             udp="udp" if self._udp_key else "tcp",
             clock_type=clock_type,
             compress=self.compress))
-        self.logger = mlat.util.TaggingLogger(glogger, {'tag': '{user}'.format(user=user)})
+        self.logger = util.TaggingLogger(glogger, {'tag': '{user}'.format(user=user)})
         return True
 
     def write_raw(self, **kwargs):
@@ -625,7 +622,7 @@ class JsonClient(mlat.connection.Connection):
     def report_mlat_position_old(self, receiver,
                                  receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
         # old client, use the old format (somewhat incomplete)
-        lat, lon, alt = mlat.geodesy.ecef2llh(ecef)
+        lat, lon, alt = geodesy.ecef2llh(ecef)
         ac = self.coordinator.tracker.aircraft[address]
         callsign = ac.callsign
         squawk = ac.squawk
@@ -634,7 +631,7 @@ class JsonClient(mlat.connection.Connection):
                           'addr': '{0:06x}'.format(address),
                           'lat': round(lat, 4),
                           'lon': round(lon, 4),
-                          'alt': round(alt * mlat.constants.MTOF, 0),
+                          'alt': round(alt * constants.MTOF, 0),
                           'callsign': callsign,
                           'squawk': squawk,
                           'hdop': 0.0,

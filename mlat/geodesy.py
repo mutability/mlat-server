@@ -21,7 +21,7 @@ Utility functions to convert between coordinate systems and calculate distances.
 """
 
 import math
-from .constants import DTOR, RTOD
+from . import constants
 
 # WGS84 ellipsoid Earth parameters
 WGS84_A = 6378137.0
@@ -42,8 +42,8 @@ _wgs84_e2_a = WGS84_ECC_SQ * WGS84_A
 def llh2ecef(llh):
     """Converts from WGS84 lat/lon/height to ellipsoid-earth ECEF"""
 
-    lat = llh[0] * DTOR
-    lng = llh[1] * DTOR
+    lat = llh[0] * constants.DTOR
+    lng = llh[1] * constants.DTOR
     alt = llh[2]
 
     slat = math.sin(lat)
@@ -76,7 +76,7 @@ def ecef2llh(ecef):
     N = WGS84_A / math.sqrt(1 - WGS84_ECC_SQ * math.sin(lat)**2)
     alt = p / math.cos(lat) - N
 
-    return (lat*RTOD, lon*RTOD, alt)
+    return (lat * constants.RTOD, lon * constants.RTOD, alt)
 
 
 def greatcircle(p0, p1):
@@ -84,10 +84,10 @@ def greatcircle(p0, p1):
     _assuming spherical earth_ and _ignoring altitude_. Don't use this if you
     need a distance accurate to better than 1%."""
 
-    lat0 = p0[0] * DTOR
-    lon0 = p0[1] * DTOR
-    lat1 = p1[0] * DTOR
-    lon1 = p1[1] * DTOR
+    lat0 = p0[0] * constants.DTOR
+    lon0 = p0[1] * constants.DTOR
+    lat1 = p1[0] * constants.DTOR
+    lon1 = p1[1] * constants.DTOR
     return SPHERICAL_R * math.acos(
         math.sin(lat0) * math.sin(lat1) +
         math.cos(lat0) * math.cos(lat1) * math.cos(abs(lon0 - lon1)))

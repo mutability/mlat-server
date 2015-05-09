@@ -31,11 +31,8 @@ import numpy
 from contextlib import closing
 
 import modes.message
-import mlat.config
-import mlat.clocknorm
-import mlat.solver
-import mlat.geodesy
-import mlat.constants
+from mlat import geodesy, constants
+from mlat.server import clocknorm, solver, config
 
 glogger = logging.getLogger("mlattrack")
 
@@ -89,7 +86,7 @@ class MlatTracker(object):
         if not group:
             group = self.pending[message] = MessageGroup(time.time(), message)
             group.handle = asyncio.get_event_loop().call_later(
-                mlat.config.MLAT_DELAY,
+                config.MLAT_DELAY,
                 self._resolve,
                 group)
 
@@ -145,8 +142,8 @@ class MlatTracker(object):
             # that we don't adjust for local pressure)
             #
             # Then degrade the accuracy over time at ~4000fpm
-            altitude = ac.altitude * mlat.constants.FTOM
-            altitude_error = (250 + (now - ac.last_altitude_time) * 70) * mlat.constants.FTOM
+            altitude = ac.altitude * constants.FTOM
+            altitude_error = (250 + (now - ac.last_altitude_time) * 70) * constants.FTOM
             min_receivers = 3 if (altitude_error < 1000) else 4
 
         # construct a map of receiver -> list of timestamps
@@ -168,8 +165,8 @@ class MlatTracker(object):
 
         # normalize timestamps. This returns a list of timestamp maps;
         # within each map, the timestamp values are comparable to each other.
-        components = mlat.clocknorm.normalize(clocktracker=self.clock_tracker,
-                                              timestamp_map=timestamp_map)
+        components = clocknorm.normalize(clocktracker=self.clock_tracker,
+                                         timestamp_map=timestamp_map)
 
         # cluster timestamps into clusters that are probably copies of the
         # same transmission.
@@ -194,12 +191,12 @@ class MlatTracker(object):
             if elapsed < 10.0 and distinct < last_result_distinct:
                 break
 
-            if elapsed < (mlat.config.MLAT_DELAY - 0.5) and distinct == last_result_distinct:
+            if elapsed < (config.MLAT_DELAY - 0.5) and distinct == last_result_distinct:
                 break
 
             cluster.sort(key=operator.itemgetter(1))  # sort by increasing timestamp (todo: just assume descending..)
-            r = mlat.solver.solve(cluster, altitude, altitude_error,
-                                  last_result_position if last_result_position else cluster[0][0].position)
+            r = solver.solve(cluster, altitude, altitude_error,
+                             last_result_position if last_result_position else cluster[0][0].position)
             if r:
                 # estimate the error
                 ecef, ecef_cov = r
@@ -236,12 +233,12 @@ class MlatTracker(object):
         ac.kalman.update(group.first_seen, cluster, altitude, altitude_error, ecef, ecef_cov, distinct)
 
         if min_receivers > 3:
-            _, _, solved_alt = mlat.geodesy.ecef2llh(ecef)
-            alt = 'missing' if (altitude is None) else '{0:.0f}'.format(altitude * mlat.constants.MTOF)
-            alterr = 'missing' if (altitude is None) else '{0:.0f}'.format(altitude_error * mlat.constants.MTOF)
+            _, _, solved_alt = geodesy.ecef2llh(ecef)
+            alt = 'missing' if (altitude is None) else '{0:.0f}'.format(altitude * constants.MTOF)
+            alterr = 'missing' if (altitude is None) else '{0:.0f}'.format(altitude_error * constants.MTOF)
             glogger.info("{addr:06x} solved altitude={solved_alt:.0f}ft from alt={alt} err={alterr}".format(
                 addr=decoded.address,
-                solved_alt=solved_alt*mlat.constants.MTOF,
+                solved_alt=solved_alt*constants.MTOF,
                 alt=alt,
                 alterr=alterr))
 
@@ -352,10 +349,10 @@ def _cluster_timestamps(component, min_receivers):
                         break
 
                     d = receiver.distance[other_receiver]
-                    if abs(other_timestamp - timestamp) > (d * 1.05 + 1e3) / mlat.constants.Cair:
+                    if abs(other_timestamp - timestamp) > (d * 1.05 + 1e3) / constants.Cair:
                         #glogger.info("   discard: delta {dt:.1f}us > max {m:.1f}us for range {d:.1f}m".format(
                         #    dt=abs(other_timestamp - timestamp)*1e6,
-                        #    m=(d * 1.05 + 1e3) / mlat.constants.Cair*1e6,
+                        #    m=(d * 1.05 + 1e3) / constants.Cair*1e6,
                         #    d=d))
                         can_cluster = False
                         break
