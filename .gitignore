@@ -1,3 +1,6 @@
 sync-fa.sh
 sync.sh
 check.sh
+__pycache__
+*.csv
+*.json
