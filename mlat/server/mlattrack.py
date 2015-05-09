@@ -194,7 +194,9 @@ class MlatTracker(object):
             # that we don't adjust for local pressure)
             #
             # Then degrade the accuracy over time at ~4000fpm
-            if altitude is not None:
+            if decoded.altitude is not None:
+                altitude_error = 250 * constants.FTOM
+            elif altitude is not None:
                 altitude_error = (250 + (cluster_utc - ac.last_altitude_time) * 70) * constants.FTOM
             else:
                 altitude_error = None
