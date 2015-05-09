@@ -560,12 +560,17 @@ class JsonClient(connection.Connection):
         if day_seconds > 86000 and (utc - now) > 85000:
             # it's a value from yesterday that arrived after rollover
             utc -= 86400
-
-        if abs(now - utc) > 1.0:
-            glogger.info('{0} GPS/UTC difference server={1:.3f} vs message={2:.3f}'.format(
+            glogger.info('{0} GPS midnight rollover server={1:.3f} message={2:.3f}'.format(
                 self.receiver,
                 now,
                 utc))
+
+        if utc > now or (now - utc) > config.MLAT_DELAY:
+            glogger.info('{0} GPS/UTC difference server={1:.3f} vs message={2:.3f} delay={3:.3f}'.format(
+                self.receiver,
+                now,
+                utc,
+                now - utc))
 
         self.coordinator.receiver_mlat(self.receiver, t, m, utc)
 
