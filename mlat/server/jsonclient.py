@@ -351,12 +351,19 @@ class JsonClient(connection.Connection):
 
                 self.use_udp = (self.udp_protocol is not None and hs.get('udp_transport', 0) == 2)
 
+                conn_info = 'v{v} {clock_type} {cversion} {udp} {compress}'.format(
+                    v=hs['version'],
+                    cversion=hs.get("client_version", "unknown"),
+                    udp="udp" if self._udp_key else "tcp",
+                    clock_type=clock_type,
+                    compress=self.compress)
                 self.receiver = self.coordinator.new_receiver(connection=self,
                                                               user=user,
                                                               auth=hs.get('auth'),
                                                               clock_type=clock_type,
                                                               position_llh=(lat, lon, alt),
-                                                              privacy=bool(hs.get('privacy', False)))
+                                                              privacy=bool(hs.get('privacy', False)),
+                                                              connection_info=conn_info)
 
                 if self.receiver.clock.epoch == 'gps_midnight':
                     self.process_mlat = self.process_mlat_gps
@@ -401,12 +408,9 @@ class JsonClient(connection.Connection):
                                          self._udp_key)
 
         self.write_raw(**response)
-        self.logger.info("Handshake successful ({user} {clock_type} {cversion} {udp} {compress})".format(
+        self.logger.info("Handshake successful ({user} {conn_info})'".format(
             user=user,
-            cversion=hs.get("client_version", "unknown"),
-            udp="udp" if self._udp_key else "tcp",
-            clock_type=clock_type,
-            compress=self.compress))
+            conn_info=conn_info))
         self.logger = util.TaggingLogger(glogger, {'tag': '{user}'.format(user=user)})
         return True
 

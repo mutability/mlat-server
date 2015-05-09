@@ -37,13 +37,14 @@ class Receiver(object):
     """Represents a particular connected receiver and the associated
     connection that manages it."""
 
-    def __init__(self, user, connection, clock, position_llh, privacy):
+    def __init__(self, user, connection, clock, position_llh, privacy, connection_info):
         self.user = user
         self.connection = connection
         self.clock = clock
         self.position_llh = position_llh
         self.position = geodesy.llh2ecef(position_llh)
         self.privacy = privacy
+        self.connection_info = connection_info
         self.dead = False
 
         self.sync_count = 0
@@ -149,14 +150,15 @@ class Coordinator(object):
                     'lat': r.position_llh[0],
                     'lon': r.position_llh[1],
                     'alt': r.position_llh[2],
-                    'privacy': r.privacy
+                    'privacy': r.privacy,
+                    'connection': r.connection_info
                 }
 
             with closing(open('sync.json', 'w')) as f:
-                json.dump(sync, fp=f)
+                json.dump(sync, fp=f, indent=True)
 
             with closing(open('locations.json', 'w')) as f:
-                json.dump(locations, fp=f)
+                json.dump(locations, fp=f, indent=True)
 
     def close(self):
         self._write_state_task.cancel()
@@ -165,7 +167,7 @@ class Coordinator(object):
     def wait_closed(self):
         util.safe_wait([self._write_state_task])
 
-    def new_receiver(self, connection, user, auth, position_llh, clock_type, privacy):
+    def new_receiver(self, connection, user, auth, position_llh, clock_type, privacy, connection_info):
         """Assigns a new receiver ID for a given user.
         Returns the new receiver ID.
 
@@ -177,7 +179,8 @@ class Coordinator(object):
         clock = clocksync.make_clock(clock_type)
         receiver = Receiver(user, connection, clock,
                             position_llh=position_llh,
-                            privacy=privacy)
+                            privacy=privacy,
+                            connection_info=connection_info)
 
         if self.authenticator is not None:
             self.authenticator(receiver, auth)  # may raise ValueError if authentication fails
