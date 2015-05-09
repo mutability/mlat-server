@@ -176,7 +176,7 @@ class MlatTracker(object):
         clusters = []
         for component in components:
             if len(component) >= min_receivers:  # don't bother with orphan components at all
-                clusters.extend(_cluster_timestamps(component))
+                clusters.extend(_cluster_timestamps(component, min_receivers))
 
         if not clusters:
             return
@@ -286,7 +286,7 @@ class MlatTracker(object):
             self.pseudorange_file.write('\n')
 
 
-def _cluster_timestamps(component):
+def _cluster_timestamps(component, min_receivers):
     #glogger.info("cluster these:")
 
     # flatten the component into a list of tuples
@@ -374,7 +374,7 @@ def _cluster_timestamps(component):
                     if is_distinct:
                         distinct_receivers += 1
 
-            if distinct_receivers >= 3:
+            if distinct_receivers >= min_receivers:
                 cluster.reverse()  # make it ascending timestamps again
                 clusters.append((distinct_receivers, cluster))
 

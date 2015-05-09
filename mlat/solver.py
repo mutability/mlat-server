@@ -74,6 +74,9 @@ def solve(measurements, altitude, altitude_error, initial_guess):
     ecef_cov: an estimate of the covariance matrix of ecef
     """
 
+    if len(measurements) + (0 if altitude is None else 1) < 4:
+        raise ValueError('Not enough measurements available')
+
     base_timestamp = measurements[0][1]
     pseudorange_data = [(receiver.position, (timestamp - base_timestamp) * Cair, math.sqrt(variance) * Cair)
                         for receiver, timestamp, variance in measurements]
