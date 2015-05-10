@@ -365,7 +365,8 @@ class JsonClient(connection.Connection):
                                                               privacy=bool(hs.get('privacy', False)),
                                                               connection_info=conn_info)
 
-                if self.receiver.clock.epoch == 'gps_midnight':
+                # disabled until I get to the bottom of the odd timestamps
+                if False and self.receiver.clock.epoch == 'gps_midnight':
                     self.process_mlat = self.process_mlat_gps
                 else:
                     self.process_mlat = self.process_mlat_nongps
