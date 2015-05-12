@@ -76,19 +76,18 @@ class MlatServer(object):
         self.loop = asyncio.get_event_loop()
         self.coordinator = None
 
-    def make_arg_parser(self):
-        parser = argparse.ArgumentParser(description="Multilateration server.")
-
+    def add_client_args(self, parser):
         parser.add_argument('--client-listen',
                             help="listen on a [host:]tcp_port[:udp_port] for connections from multilateration clients. You should have at least one of these!",  # noqa
                             type=host_and_ports,
                             action='append',
-                            required=True)
+                            default=[])
         parser.add_argument('--motd',
                             type=str,
                             help="set the server MOTD sent to clients.",
                             default="In-development v2 server. Expect odd behaviour.")
 
+    def add_output_args(self, parser):
         parser.add_argument('--write-csv',
                             help="write results in CSV format to a local file.",
                             action='append',
@@ -116,6 +115,7 @@ class MlatServer(object):
                             type=port_or_hostport,
                             default=[])
 
+    def add_util_args(self, parser):
         parser.add_argument('--check-leaks',
                             help="run periodic memory leak checks (requires objgraph package).",
                             action='store_true',
@@ -124,13 +124,23 @@ class MlatServer(object):
         parser.add_argument('--dump-pseudorange',
                             help="dump pseudorange data in json format to a file")
 
+    def make_arg_parser(self):
+        parser = argparse.ArgumentParser(description="Multilateration server.")
+
+        self.add_client_args(parser.add_argument_group('Client connections'))
+        self.add_output_args(parser.add_argument_group('Output methods'))
+        self.add_util_args(parser.add_argument_group('Utility options'))
+
         return parser
 
     def make_subtasks(self, args):
-        subtasks = [self.coordinator]
+        return ([self.coordinator] +
+                self.make_util_subtasks(args) +
+                self.make_output_subtasks(args) +
+                self.make_client_subtasks(args))
 
-        if args.check_leaks:
-            subtasks.append(leakcheck.LeakChecker())
+    def make_client_subtasks(self, args):
+        subtasks = []
 
         for host, tcp_port, udp_port in args.client_listen:
             subtasks.append(jsonclient.JsonClientListener(host=host,
@@ -138,6 +148,11 @@ class MlatServer(object):
                                                           udp_port=udp_port,
                                                           coordinator=self.coordinator,
                                                           motd=args.motd))
+
+        return subtasks
+
+    def make_output_subtasks(self, args):
+        subtasks = []
 
         for host, port in args.basestation_connect:
             subtasks.append(output.make_basestation_connector(host=host,
@@ -166,6 +181,14 @@ class MlatServer(object):
         for filename in args.write_csv:
             subtasks.append(output.LocalCSVWriter(coordinator=self.coordinator,
                                                   filename=filename))
+
+        return subtasks
+
+    def make_util_subtasks(self, args):
+        subtasks = []
+
+        if args.check_leaks:
+            subtasks.append(leakcheck.LeakChecker())
 
         return subtasks
 
