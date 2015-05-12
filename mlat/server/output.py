@@ -258,14 +258,16 @@ class BasestationClient(object):
 
 
 def make_basestation_listener(host, port, coordinator, use_kalman_data):
-    return net.MonitoringListener(host, port,
-                                  functools.partial(BasestationClient,
-                                                    coordinator=coordinator,
-                                                    use_kalman_data=use_kalman_data))
+    factory = functools.partial(BasestationClient,
+                                coordinator=coordinator,
+                                use_kalman_data=use_kalman_data)
+    return net.MonitoringListener(host, port, factory,
+                                  logger=logging.getLogger('basestation'),
+                                  description='Basestation output listener')
 
 
 def make_basestation_connector(host, port, coordinator, use_kalman_data):
-    return net.MonitoringConnector(host, port, 30.0,
-                                   functools.partial(BasestationClient,
-                                                     coordinator=coordinator,
-                                                     use_kalman_data=use_kalman_data))
+    factory = functools.partial(BasestationClient,
+                                coordinator=coordinator,
+                                use_kalman_data=use_kalman_data)
+    return net.MonitoringConnector(host, port, 30.0, factory)

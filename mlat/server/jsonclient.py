@@ -41,7 +41,7 @@ glogger = logging.getLogger("client")
 
 class JsonClientListener(net.MonitoringListener):
     def __init__(self, host, tcp_port, udp_port, motd, coordinator):
-        super().__init__(host, tcp_port, None, logger=glogger)
+        super().__init__(host, tcp_port, None, logger=glogger, description='JSON client handler')
         self.coordinator = coordinator
         self.udp_port = udp_port
         self.motd = motd
@@ -63,7 +63,7 @@ class JsonClientListener(net.MonitoringListener):
             name = self.udp_transport.get_extra_info('sockname')
             self.logger.info("{what} listening on {host}:{port} (UDP)".format(host=name[0],
                                                                               port=name[1],
-                                                                              what=self.__class__.__name__))
+                                                                              what=self.description))
 
         yield from super()._start()
 

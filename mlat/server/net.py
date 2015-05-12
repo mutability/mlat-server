@@ -31,7 +31,11 @@ glogger = logging.getLogger("net")
 
 
 class MonitoringListener(object):
-    def __init__(self, host, port, factory, logger=glogger):
+    def __init__(self, host, port, factory, logger=glogger, description=None):
+        if not description:
+            description = self.__class__.__name__
+
+        self.description = description
         self.logger = logger
         self.started = False
         self.host = host
@@ -60,7 +64,7 @@ class MonitoringListener(object):
             name = s.getsockname()
             self.logger.info("{what} listening on {host}:{port} (TCP)".format(host=name[0],
                                                                               port=name[1],
-                                                                              what=self.__class__.__name__))
+                                                                              what=self.description))
 
     def _new_client(self, r, w):
         return self.factory(r, w)
