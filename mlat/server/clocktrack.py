@@ -337,12 +337,12 @@ class ClockTracker(object):
             if pairing.n < 2:
                 continue
             if r0 is receiver:
-                state[r1.user] = [pairing.n,
+                state[r1.uuid] = [pairing.n,
                                   round(pairing.error * 1e6, 1),
                                   round(pairing.drift * 1e6, 2),
                                   pairing.ts_peer[-1] - pairing.ts_base[-1]]
             elif r1 is receiver:
-                state[r0.user] = [pairing.n,
+                state[r0.uuid] = [pairing.n,
                                   round(pairing.error * 1e6, 1),
                                   round(pairing.i_drift * 1e6, 2),
                                   pairing.ts_base[-1] - pairing.ts_peer[-1]]

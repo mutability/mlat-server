@@ -37,7 +37,8 @@ class Receiver(object):
     """Represents a particular connected receiver and the associated
     connection that manages it."""
 
-    def __init__(self, user, connection, clock, position_llh, privacy, connection_info):
+    def __init__(self, uuid, user, connection, clock, position_llh, privacy, connection_info):
+        self.uuid = uuid
         self.user = user
         self.connection = connection
         self.clock = clock
@@ -77,15 +78,16 @@ class Receiver(object):
         self.connection.request_traffic(self, {x.icao for x in self.requested})
 
     def __lt__(self, other):
-        return id(self) < id(other)
+        return self.uuid < other.uuid
 
     def __str__(self):
-        return self.user
+        return self.uuid
 
     def __repr__(self):
-        return 'Receiver({0!r},{1!r})@{2}'.format(self.user,
-                                                  self.connection,
-                                                  id(self))
+        return 'Receiver({0!r},{0!r},{1!r})@{2}'.format(self.uuid,
+                                                        self.user,
+                                                        self.connection,
+                                                        id(self))
 
 
 class Coordinator(object):
@@ -100,7 +102,7 @@ class Coordinator(object):
         failure.
         """
 
-        self.receivers = {}    # keyed by username
+        self.receivers = {}    # keyed by uuid
         self.sighup_handlers = []
         self.authenticator = authenticator
         self.tracker = tracker.Tracker()
@@ -143,10 +145,11 @@ class Coordinator(object):
             locations = {}
 
             for r in self.receivers.values():
-                sync[r.user] = {
+                sync[r.uuid] = {
                     'peers': self.clock_tracker.dump_receiver_state(r)
                 }
-                locations[r.user] = {
+                locations[r.uuid] = {
+                    'user': r.user,
                     'lat': r.position_llh[0],
                     'lon': r.position_llh[1],
                     'alt': r.position_llh[2],
@@ -167,17 +170,17 @@ class Coordinator(object):
     def wait_closed(self):
         util.safe_wait([self._write_state_task])
 
-    def new_receiver(self, connection, user, auth, position_llh, clock_type, privacy, connection_info):
+    def new_receiver(self, connection, uuid, user, auth, position_llh, clock_type, privacy, connection_info):
         """Assigns a new receiver ID for a given user.
         Returns the new receiver ID.
 
         May raise ValueError to disallow this receiver."""
 
-        if user in self.receivers:
-            raise ValueError('User {user} is already connected'.format(user=user))
+        if uuid in self.receivers:
+            raise ValueError('User {uuid}/{user} is already connected'.format(uuid=uuid, user=user))
 
         clock = clocksync.make_clock(clock_type)
-        receiver = Receiver(user, connection, clock,
+        receiver = Receiver(uuid, user, connection, clock,
                             position_llh=position_llh,
                             privacy=privacy,
                             connection_info=connection_info)
@@ -192,21 +195,20 @@ class Coordinator(object):
             receiver.distance[other_receiver] = distance
             other_receiver.distance[receiver] = distance
 
-        self.receivers[receiver.user] = receiver  # authenticator might update user
+        self.receivers[receiver.uuid] = receiver
         return receiver
 
     def receiver_disconnect(self, receiver):
         """Notes that the given receiver has disconnected."""
 
         receiver.dead = True
-        if self.receivers.get(receiver.user) is receiver:
-            self.tracker.remove_all(receiver)
-            self.clock_tracker.receiver_disconnect(receiver)
-            del self.receivers[receiver.user]
+        self.tracker.remove_all(receiver)
+        self.clock_tracker.receiver_disconnect(receiver)
+        self.receivers.pop(receiver.uuid)
 
-            # clean up old distance entries
-            for other_receiver in self.receivers.values():
-                other_receiver.distance.pop(receiver, None)
+        # clean up old distance entries
+        for other_receiver in self.receivers.values():
+            other_receiver.distance.pop(receiver, None)
 
     def receiver_sync(self, receiver,
                       even_time, odd_time, even_message, odd_message):
@@ -252,5 +254,5 @@ class Coordinator(object):
                                                          receive_timestamp, address,
                                                          ecef, ecef_cov, receivers, distinct)
             except Exception:
-                glogger.exception("Failed to forward result to receiver {r}".format(r=receiver.user))
+                glogger.exception("Failed to forward result to receiver {r}".format(r=receiver.uuid))
                 # eat the exception so it doesn't break our caller

@@ -358,6 +358,7 @@ class JsonClient(connection.Connection):
                     clock_type=clock_type,
                     compress=self.compress)
                 self.receiver = self.coordinator.new_receiver(connection=self,
+                                                              uuid=user,
                                                               user=user,
                                                               auth=hs.get('auth'),
                                                               clock_type=clock_type,

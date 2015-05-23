@@ -295,4 +295,4 @@ class ClockPairing(object):
                     (self.ts_peer[i] - self.ts_peer[i-1]))
 
     def __str__(self):
-        return self.base.user + ':' + self.peer.user
+        return self.base.uuid + ':' + self.peer.uuid
