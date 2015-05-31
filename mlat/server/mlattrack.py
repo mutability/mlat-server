@@ -45,11 +45,12 @@ class MessageGroup:
 
 
 class MlatTracker(object):
-    def __init__(self, coordinator, pseudorange_filename=None):
+    def __init__(self, coordinator, blacklist_filename=None, pseudorange_filename=None):
         self.pending = {}
         self.coordinator = coordinator
         self.tracker = coordinator.tracker
         self.clock_tracker = coordinator.clock_tracker
+        self.blacklist_filename = blacklist_filename
         self.read_blacklist()
         self.coordinator.add_sighup_handler(self.read_blacklist)
 
@@ -61,15 +62,17 @@ class MlatTracker(object):
 
     def read_blacklist(self):
         s = set()
-        try:
-            with closing(open('mlat-blacklist.txt', 'r')) as f:
-                user = f.readline().strip()
-                if user:
-                    s.add(user)
-        except FileNotFoundError:
-            pass
+        if self.blacklist_filename:
+            try:
+                with closing(open('mlat-blacklist.txt', 'r')) as f:
+                    user = f.readline().strip()
+                    if user:
+                        s.add(user)
+            except FileNotFoundError:
+                pass
 
-        glogger.info("Read {n} blacklist entries".format(n=len(s)))
+            glogger.info("Read {n} blacklist entries".format(n=len(s)))
+
         self.blacklist = s
 
     def reopen_pseudoranges(self):

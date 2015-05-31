@@ -94,7 +94,7 @@ class Coordinator(object):
     """Master coordinator. Receives all messages from receivers and dispatches
     them to clock sync / multilateration / tracking as needed."""
 
-    def __init__(self, authenticator=None, pseudorange_filename=None):
+    def __init__(self, work_dir, authenticator=None, pseudorange_filename=None):
         """If authenticator is not None, it should be a callable that takes two arguments:
         the newly created Receiver, plus the 'auth' argument provided by the connection.
         The authenticator may modify the receiver if needed. The authenticator should either
@@ -102,12 +102,15 @@ class Coordinator(object):
         failure.
         """
 
+        self.work_dir = work_dir
         self.receivers = {}    # keyed by uuid
         self.sighup_handlers = []
         self.authenticator = authenticator
         self.tracker = tracker.Tracker()
         self.clock_tracker = clocktrack.ClockTracker()
-        self.mlat_tracker = mlattrack.MlatTracker(self, pseudorange_filename=pseudorange_filename)
+        self.mlat_tracker = mlattrack.MlatTracker(self,
+                                                  blacklist_filename=work_dir + '/blacklist.txt',
+                                                  pseudorange_filename=pseudorange_filename)
         self.output_handlers = [self.forward_results]
 
     def start(self):
@@ -157,10 +160,10 @@ class Coordinator(object):
                     'connection': r.connection_info
                 }
 
-            with closing(open('sync.json', 'w')) as f:
+            with closing(open(self.work_dir + '/sync.json', 'w')) as f:
                 json.dump(sync, fp=f, indent=True)
 
-            with closing(open('locations.json', 'w')) as f:
+            with closing(open(self.work_dir + '/locations.json', 'w')) as f:
                 json.dump(locations, fp=f, indent=True)
 
     def close(self):

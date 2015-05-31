@@ -116,6 +116,10 @@ class MlatServer(object):
                             default=[])
 
     def add_util_args(self, parser):
+        parser.add_argument('--work-dir',
+                            help="directory for debug/stats output and blacklist",
+                            required=True)
+
         parser.add_argument('--check-leaks',
                             help="run periodic memory leak checks (requires objgraph package).",
                             action='store_true',
@@ -199,7 +203,8 @@ class MlatServer(object):
     def run(self):
         args = self.make_arg_parser().parse_args()
 
-        self.coordinator = coordinator.Coordinator(pseudorange_filename=args.dump_pseudorange)
+        self.coordinator = coordinator.Coordinator(work_dir=args.work_dir,
+                                                   pseudorange_filename=args.dump_pseudorange)
 
         subtasks = self.make_subtasks(args)
 
