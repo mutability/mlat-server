@@ -191,15 +191,28 @@ class Coordinator(object):
         if self.authenticator is not None:
             self.authenticator(receiver, auth)  # may raise ValueError if authentication fails
 
-        # compute inter-station distances
-        receiver.distance[receiver] = 0
-        for other_receiver in self.receivers.values():
-            distance = geodesy.ecef_distance(receiver.position, other_receiver.position)
-            receiver.distance[other_receiver] = distance
-            other_receiver.distance[receiver] = distance
+        self._compute_interstation_distances(receiver)
 
         self.receivers[receiver.uuid] = receiver
         return receiver
+
+    def _compute_interstation_distances(self, receiver):
+        """compute inter-station distances for a receiver"""
+
+        for other_receiver in self.receivers.values():
+            if other_receiver is receiver:
+                distance = 0
+            else:
+                distance = geodesy.ecef_distance(receiver.position, other_receiver.position)
+            receiver.distance[other_receiver] = distance
+            other_receiver.distance[receiver] = distance
+
+    def receiver_location_update(self, receiver, position_llh):
+        """Note that a given receiver has moved."""
+        receiver.position_llh = position_llh
+        receiver.position = geodesy.llh2ecef(position_llh)
+
+        self._compute_interstation_distances(receiver)
 
     def receiver_disconnect(self, receiver):
         """Notes that the given receiver has disconnected."""
