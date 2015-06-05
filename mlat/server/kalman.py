@@ -45,9 +45,9 @@ class KalmanState(object):
 
     # defaults:
     # minimum DOF to update a filter while acquiring
-    min_acquiring_dof = 4
+    min_acquiring_dof = 1
     # minimum DOF to update a filter while tracking
-    min_tracking_dof = 3
+    min_tracking_dof = 0
     # Mahalanobis distance threshold for outliers
     outlier_mahalanobis_distance = 15.0
     # position error threshold for switching from acquiring to tracking, meters
