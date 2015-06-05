@@ -125,21 +125,21 @@ class MlatTracker(object):
         if ac.last_result_position is None or (group.first_seen - ac.last_result_time) > 120:
             last_result_position = None
             last_result_var = 1e9
-            last_result_distinct = 0
+            last_result_dof = 0
             last_result_time = group.first_seen - 120
         else:
             last_result_position = ac.last_result_position
             last_result_var = ac.last_result_var
-            last_result_distinct = ac.last_result_distinct
+            last_result_dof = ac.last_result_dof
             last_result_time = ac.last_result_time
 
         # find altitude
         if ac.altitude is None:
             altitude = None
-            min_receivers = 4
+            altitude_dof = 0
         else:
             altitude = ac.altitude * constants.FTOM
-            min_receivers = 3
+            altitude_dof = 1
 
         # construct a map of receiver -> list of timestamps
         timestamp_map = {}
@@ -148,15 +148,16 @@ class MlatTracker(object):
                 timestamp_map.setdefault(receiver, []).append((timestamp, utc))
 
         # check for minimum needed receivers
-        if len(timestamp_map) < min_receivers:
+        dof = len(timestamp_map) + altitude_dof - 4
+        if dof < 0:
             return
 
         # basic ratelimit before we do more work
         elapsed = group.first_seen - last_result_time
-        if elapsed < 15.0 and len(timestamp_map) < last_result_distinct:
+        if elapsed < 15.0 and dof < last_result_dof:
             return
 
-        if elapsed < 2.0 and len(timestamp_map) == last_result_distinct:
+        if elapsed < 2.0 and dof == last_result_dof:
             return
 
         # normalize timestamps. This returns a list of timestamp maps;
@@ -167,9 +168,10 @@ class MlatTracker(object):
         # cluster timestamps into clusters that are probably copies of the
         # same transmission.
         clusters = []
+        min_component_size = 4 - altitude_dof
         for component in components:
-            if len(component) >= min_receivers:  # don't bother with orphan components at all
-                clusters.extend(_cluster_timestamps(component, min_receivers))
+            if len(component) >= min_component_size:  # don't bother with orphan components at all
+                clusters.extend(_cluster_timestamps(component, min_component_size))
 
         if not clusters:
             return
@@ -185,11 +187,12 @@ class MlatTracker(object):
             # accept more receivers immediately
 
             elapsed = cluster_utc - last_result_time
+            dof = distinct + altitude_dof - 4
 
-            if elapsed < 10.0 and distinct < last_result_distinct:
+            if elapsed < 10.0 and dof < last_result_dof:
                 break
 
-            if elapsed < (config.MLAT_DELAY - 0.5) and distinct == last_result_distinct:
+            if elapsed < (config.MLAT_DELAY - 0.5) and dof == last_result_dof:
                 break
 
             # assume 250ft accuracy at the time it is reported
@@ -237,25 +240,22 @@ class MlatTracker(object):
         ecef, ecef_cov = result
         ac.last_result_position = ecef
         ac.last_result_var = var_est
-        ac.last_result_distinct = distinct
+        ac.last_result_dof = dof
         ac.last_result_time = cluster_utc
 
-        ac.kalman.update(cluster_utc, cluster, altitude, altitude_error, ecef, ecef_cov, distinct)
+        ac.kalman.update(cluster_utc, cluster, altitude, altitude_error, ecef, ecef_cov, distinct, dof)
 
-        if min_receivers > 3:
+        if altitude is None:
             _, _, solved_alt = geodesy.ecef2llh(ecef)
-            alt = 'missing' if (altitude is None) else '{0:.0f}'.format(altitude * constants.MTOF)
-            alterr = 'missing' if (altitude is None) else '{0:.0f}'.format(altitude_error * constants.MTOF)
-            glogger.info("{addr:06x} solved altitude={solved_alt:.0f}ft from alt={alt} err={alterr}".format(
+            glogger.info("{addr:06x} solved altitude={solved_alt:.0f}ft with dof={dof}".format(
                 addr=decoded.address,
                 solved_alt=solved_alt*constants.MTOF,
-                alt=alt,
-                alterr=alterr))
+                dof=dof))
 
         for handler in self.coordinator.output_handlers:
             handler(cluster_utc, decoded.address,
                     ecef, ecef_cov,
-                    [receiver for receiver, timestamp, error in cluster], distinct,
+                    [receiver for receiver, timestamp, error in cluster], distinct, dof,
                     ac.kalman)
 
         if self.pseudorange_file:
@@ -283,6 +283,7 @@ class MlatTracker(object):
                                   round(ecef_cov[2, 1], 0),
                                   round(ecef_cov[2, 2], 0)],
                      'distinct': distinct,
+                     'dof': dof,
                      'cluster': cluster_state}
 
             if altitude is not None:

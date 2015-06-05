@@ -44,10 +44,10 @@ class KalmanState(object):
     """
 
     # defaults:
-    # minimum distinct receivers to update a filter while acquiring
-    min_acquiring_receivers = 4
-    # minimum distinct receivers to update a filter while tracking
-    min_tracking_receivers = 3
+    # minimum DOF to update a filter while acquiring
+    min_acquiring_dof = 4
+    # minimum DOF to update a filter while tracking
+    min_tracking_dof = 3
     # Mahalanobis distance threshold for outliers
     outlier_mahalanobis_distance = 15.0
     # position error threshold for switching from acquiring to tracking, meters
@@ -164,7 +164,7 @@ class KalmanState(object):
         self.valid = True
 
     def update(self, position_time, measurements, altitude, altitude_error,
-               leastsquares_position, leastsquares_cov, distinct):
+               leastsquares_position, leastsquares_cov, distinct, dof):
         """Update the filter given a new set of observations.
 
         position_time:         the time of these measurements, UTC seconds
@@ -175,10 +175,11 @@ class KalmanState(object):
                                solver
         leastsquares_cov:      the covariance of leastsquares_position
         distinct:              the number of distinct receivers
+        dof:                   the number of degrees of freedom in the solution
         """
 
-        if self._acquiring and distinct < self.min_acquiring_receivers:
-            # don't trust 3 station results until we have converged
+        if self._acquiring and dof < self.min_acquiring_dof:
+            # don't trust this result until we have converged
             return
 
         if self._mean is None:
@@ -188,7 +189,7 @@ class KalmanState(object):
             self.set_initial_state(leastsquares_position, leastsquares_cov)
             return
 
-        if distinct < self.min_tracking_receivers:
+        if dof < self.min_tracking_dof:
             # don't use this one
             return
 

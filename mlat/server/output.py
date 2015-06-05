@@ -52,8 +52,8 @@ def csv_quote(s):
 class LocalCSVWriter(object):
     """Writes multilateration results to a local CSV file"""
 
-    TEMPLATE = '{t:.3f},{address:06X},{callsign},{squawk},{lat:.4f},{lon:.4f},{alt:.0f},{err:.0f},{n},{d},{receivers}\n'
-    KTEMPLATE = '{t:.3f},{address:06X},{callsign},{squawk},{lat:.4f},{lon:.4f},{alt:.0f},{err:.0f},{n},{d},{receivers},{klat:.4f},{klon:.4f},{kalt:.0f},{kheading:.0f},{kspeed:.0f},{kvrate:.0f},{kerr:.0f}\n'  # noqa
+    TEMPLATE = '{t:.3f},{address:06X},{callsign},{squawk},{lat:.4f},{lon:.4f},{alt:.0f},{err:.0f},{n},{d},{receivers},{dof}\n'  # noqa
+    KTEMPLATE = '{t:.3f},{address:06X},{callsign},{squawk},{lat:.4f},{lon:.4f},{alt:.0f},{err:.0f},{n},{d},{receivers},{dof},{klat:.4f},{klon:.4f},{kalt:.0f},{kheading:.0f},{kspeed:.0f},{kvrate:.0f},{kerr:.0f}\n'  # noqa
 
     def __init__(self, coordinator, filename):
         self.logger = logging.getLogger("csv")
@@ -82,7 +82,7 @@ class LocalCSVWriter(object):
         except Exception:
             self.logger.exception("Failed to reopen {filename}".format(filename=self.filename))
 
-    def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct, kalman_state):
+    def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct, dof, kalman_state):
         try:
             lat, lon, alt = geodesy.ecef2llh(ecef)
 
@@ -111,6 +111,7 @@ class LocalCSVWriter(object):
                     err=err_est,
                     n=len(receivers),
                     d=distinct,
+                    dof=dof,
                     receivers=csv_quote(','.join([receiver.uuid for receiver in receivers])),
                     klat=kalman_state.position_llh[0],
                     klon=kalman_state.position_llh[1],
@@ -131,6 +132,7 @@ class LocalCSVWriter(object):
                     err=err_est,
                     n=len(receivers),
                     d=distinct,
+                    dof=dof,
                     receivers=csv_quote(','.join([receiver.uuid for receiver in receivers])))
 
             self.f.write(line)
@@ -209,7 +211,7 @@ class BasestationClient(object):
             self.close()
             return
 
-    def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct, kalman_data):
+    def write_result(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct, dof, kalman_data):
         try:
             if self.use_kalman_data:
                 if not kalman_data.valid or kalman_data.last_update < receive_timestamp:
