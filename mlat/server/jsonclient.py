@@ -354,7 +354,7 @@ class JsonClient(connection.Connection):
                 conn_info = 'v{v} {clock_type} {cversion} {udp} {compress}'.format(
                     v=hs['version'],
                     cversion=hs.get("client_version", "unknown"),
-                    udp="udp" if self._udp_key else "tcp",
+                    udp="udp" if self.use_udp else "tcp",
                     clock_type=clock_type,
                     compress=self.compress)
                 self.receiver = self.coordinator.new_receiver(connection=self,
