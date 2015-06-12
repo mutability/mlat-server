@@ -27,7 +27,7 @@ import pykalman.unscented
 import functools
 import logging
 
-from mlat import geodesy, constants
+from mlat import geodesy, constants, profile
 
 glogger = logging.getLogger("kalman")
 
@@ -163,6 +163,7 @@ class KalmanState(object):
 
         self.valid = True
 
+    @profile.trackcpu
     def update(self, position_time, measurements, altitude, altitude_error,
                leastsquares_position, leastsquares_cov, distinct, dof):
         """Update the filter given a new set of observations.

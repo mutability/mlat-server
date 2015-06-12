@@ -26,7 +26,7 @@ import math
 
 import scipy.optimize
 
-from mlat import geodesy, constants
+from mlat import geodesy, constants, profile
 from mlat.server import config
 
 # The core of it all. Not very big, is it?
@@ -56,6 +56,7 @@ def _residuals(x_guess, pseudorange_data, altitude, altitude_error):
     return res
 
 
+@profile.trackcpu
 def solve(measurements, altitude, altitude_error, initial_guess):
     """Given a set of receive timestamps, multilaterate the position of the transmitter.
 

@@ -27,7 +27,7 @@ import json
 import logging
 from contextlib import closing
 
-from mlat import geodesy
+from mlat import geodesy, profile
 from mlat.server import tracker, clocksync, clocktrack, mlattrack, util
 
 glogger = logging.getLogger("coordinator")
@@ -118,6 +118,10 @@ class Coordinator(object):
 
     def start(self):
         self._write_state_task = asyncio.async(self.write_state())
+        if profile.enabled:
+            self._write_profile_task = asyncio.async(self.write_profile())
+        else:
+            self._write_profile_task = None
         return util.completed_future
 
     def add_output_handler(self, handler):
@@ -147,34 +151,51 @@ class Coordinator(object):
         while True:
             yield from asyncio.sleep(30.0)
 
-            sync = {}
-            locations = {}
+            try:
+                sync = {}
+                locations = {}
 
-            for r in self.receivers.values():
-                sync[r.uuid] = {
-                    'peers': self.clock_tracker.dump_receiver_state(r)
-                }
-                locations[r.uuid] = {
-                    'user': r.user,
-                    'lat': r.position_llh[0],
-                    'lon': r.position_llh[1],
-                    'alt': r.position_llh[2],
-                    'privacy': r.privacy,
-                    'connection': r.connection_info
-                }
+                for r in self.receivers.values():
+                    sync[r.uuid] = {
+                        'peers': self.clock_tracker.dump_receiver_state(r)
+                    }
+                    locations[r.uuid] = {
+                        'user': r.user,
+                        'lat': r.position_llh[0],
+                        'lon': r.position_llh[1],
+                        'alt': r.position_llh[2],
+                        'privacy': r.privacy,
+                        'connection': r.connection_info
+                    }
 
-            with closing(open(self.work_dir + '/sync.json', 'w')) as f:
-                json.dump(sync, fp=f, indent=True)
+                with closing(open(self.work_dir + '/sync.json', 'w')) as f:
+                    json.dump(sync, fp=f, indent=True)
 
-            with closing(open(self.work_dir + '/locations.json', 'w')) as f:
-                json.dump(locations, fp=f, indent=True)
+                with closing(open(self.work_dir + '/locations.json', 'w')) as f:
+                    json.dump(locations, fp=f, indent=True)
+
+            except Exception:
+                glogger.exception("Failed to write state files")
+
+    @asyncio.coroutine
+    def write_profile(self):
+        while True:
+            yield from asyncio.sleep(60.0)
+
+            try:
+                with closing(open(self.work_dir + '/cpuprofile.txt', 'w')) as f:
+                    profile.dump_cpu_profiles(f)
+            except Exception:
+                glogger.exception("Failed to write CPU profile")
 
     def close(self):
         self._write_state_task.cancel()
+        if self._write_profile_task:
+            self._write_profile_task.cancel()
 
     @asyncio.coroutine
     def wait_closed(self):
-        util.safe_wait([self._write_state_task])
+        util.safe_wait([self._write_state_task, self._write_profile_task])
 
     def new_receiver(self, connection, uuid, user, auth, position_llh, clock_type, privacy, connection_info):
         """Assigns a new receiver ID for a given user.

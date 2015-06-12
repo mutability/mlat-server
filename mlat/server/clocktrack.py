@@ -30,7 +30,7 @@ import logging
 
 import modes.message
 
-from mlat import geodesy, constants
+from mlat import geodesy, constants, profile
 from mlat.server import clocksync, config
 
 
@@ -127,6 +127,7 @@ class ClockTracker(object):
             if k[0] is receiver or k[1] is receiver:
                 del self.clock_pairs[k]
 
+    @profile.trackcpu
     def receiver_sync(self, receiver,
                       even_time, odd_time,
                       even_message, odd_message):

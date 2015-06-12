@@ -23,6 +23,8 @@ Clock normalization routines.
 import pygraph.classes.graph
 import pygraph.algorithms.minmax
 
+from mlat import profile
+
 
 class _Predictor(object):
     """Simple object for holding prediction state"""
@@ -129,6 +131,7 @@ def _convert_timestamps(g, timestamp_map, predictor_map, node, results, conversi
                                 [predictor] + conversion_chain, variance + predictor.variance)
 
 
+@profile.trackcpu
 def normalize(clocktracker, timestamp_map):
     """
     Given {receiver: [(timestamp, utc), ...]}

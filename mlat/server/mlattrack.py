@@ -30,7 +30,7 @@ import numpy
 from contextlib import closing
 
 import modes.message
-from mlat import geodesy, constants
+from mlat import geodesy, constants, profile
 from mlat.server import clocknorm, solver, config
 
 glogger = logging.getLogger("mlattrack")
@@ -82,6 +82,7 @@ class MlatTracker(object):
 
         self.pseudorange_file = open(self.pseudorange_filename, 'a')
 
+    @profile.trackcpu
     def receiver_mlat(self, receiver, timestamp, message, utc):
         # use message as key
         group = self.pending.get(message)
@@ -95,6 +96,7 @@ class MlatTracker(object):
         group.copies.append((receiver, timestamp, utc))
         group.first_seen = min(group.first_seen, utc)
 
+    @profile.trackcpu
     def _resolve(self, group):
         del self.pending[group.message]
 
