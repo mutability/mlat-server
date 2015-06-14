@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>sync stats</title>
+    <link rel="stylesheet" type="text/css" href="style.css" />
+    <script src="syncstats.js"></script>
+  </head>
+  <body onload="refresh()">
+    <table id="syncstatstable">
+    </table>
+    
+    <p>
+      This table shows the current clock synchronization state between all receivers. It will automatically update about every 30 seconds.
+    </p>
+    
+    <p>
+      Each receiver pair has two main values: the number of synchronizations done in the last approx 30 seconds (larger is better)
+      and the estimated synchronization error in microseconds (smaller is better)
+    </p>
+
+    <p>
+      The third value (at the bottom of each cell) is the relative frequency offset of the receiver clocks, in PPM.
+      This is mostly just for interest. If you have values getting close to 200 it can be a problem, as the server will reject differences >200PPM -
+      better fix your dump1090 --ppm setting!     
+    </p>   
+    
+    <p>
+      Green cells are good, yellow cells are OK, red cells are bad. Grey cells mean there is no synchronization available between that pair of receivers.
+      (Sorry if you're colorblind! The colors are all configured in the stylesheet - send me better suggestions?)
+    </p>
+    
+    <p>
+      It's normal to have quite a few yellow cells for number of synchronizations (usually this is infrequent synchronization between distant receivers).
+    </p>
+    
+    <p>
+      Yellow cells for synchronization errors are uncommon - usually either the clock error is very good or very bad, there's not much middle ground.
+    </p>
+    
+    <p>
+      Red cells for synchronization errors usually indicate a clock problem.
+      If there's only one in a row/column it's probably a one-off outlier.
+      If a whole row/column goes red that usually indicates clock instability in that receiver.
+      Receiver pairs that have red cells are not used for multilateration.
+    </p>
+
+    <p>
+      The PPM values are <b>relative</b> values. They don't tell you anything about the true offset. However: the Vsky receiver is a GPS-synchronized
+      Radarcape that should have an accurate frequency; so the offsets between Vsky and other receivers should be close to the true offsets.
+  </body>
+</html>

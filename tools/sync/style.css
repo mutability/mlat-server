@@ -1,0 +1,47 @@
+table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+}
+
+table, td {
+    border: 1px solid black;
+}
+
+td {
+    width: 80px;
+    overflow: hidden;
+}
+
+.sync_count {
+    text-align: right;
+}
+
+.sync_err {
+    text-align: left;    
+}
+
+.sync_ppm {
+    text-align: center;
+}
+
+.sync_omit {
+    background-color: white;
+    text-align: center;
+}
+
+.sync_nodata {
+    background-color: lightgrey;
+}
+
+.sync_good {
+    background-color: lightgreen;
+}
+
+.sync_ok {
+    background-color: yellow;
+}
+
+.sync_bad {
+    background-color: red;
+}
