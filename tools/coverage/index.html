@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <title>Multilateration Coverage</title>
+    <link rel="stylesheet" type="text/css" href="style.css" />
+    <script src="https://maps.googleapis.com/maps/api/js?v=3.19"></script>
+    <script src="data.js"></script>
+    <script src="overlay.js"></script>
+  </head>
+  <body>
+    <div id="map-container">
+      <div id="map-canvas"></div>
+    </div>
+    <div id="sidebar-container">
+      <p>Start: <span id="date_start"></span></p>
+      <p>End: <span id="date_end"></span></p>
+      <p>Total positions: <span id="num_pos"></span></p>
+      <table width="100%">
+        <tbody id="station-table-body">
+          <tr id="station-template" class="hidden">
+            <td>
+              <button type="button">STATION</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </body>
+</html>
