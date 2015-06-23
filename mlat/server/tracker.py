@@ -83,8 +83,25 @@ class Tracker(object):
     """Tracks which receivers can see which aircraft, and asks receivers to
     forward traffic accordingly."""
 
-    def __init__(self):
+    def __init__(self, partition):
         self.aircraft = {}
+        self.partition_id = partition[0] - 1
+        self.partition_count = partition[1]
+
+    def apply_partition(self, mlat_set):
+        if self.partition_count == 1:
+            return mlat_set
+
+        newset = set()
+        for ac in mlat_set:
+            # mix the address a bit
+            h = ac.icao
+            h = ((h >> 16) ^ h) * 0x45d9f3b
+            h = ((h >> 16) ^ h) * 0x45d9f3b
+            h = ((h >> 16) ^ h)
+            if (h % self.partition_count) == self.partition_id:
+                newset.add(ac)
+        return newset
 
     def add(self, receiver, icao_set):
         for icao in icao_set:
@@ -128,6 +145,7 @@ class Tracker(object):
             # Legacy client, no rate report, we cannot be very selective.
             new_sync = {ac for ac in receiver.tracking if len(ac.tracking) > 1}
             new_mlat = receiver.tracking.copy()
+            new_mlat = self.apply_partition(new_mlat)
             receiver.update_interest_sets(new_sync, new_mlat)
             asyncio.get_event_loop().call_later(15.0, receiver.refresh_traffic_requests)
             return
@@ -187,5 +205,6 @@ class Tracker(object):
             if ac.icao not in receiver.last_rate_report:
                 new_mlat_set.add(ac)
 
+        new_mlat_set = self.apply_partition(new_mlat_set)
         receiver.update_interest_sets(new_sync_set, new_mlat_set)
         asyncio.get_event_loop().call_later(15.0, receiver.refresh_traffic_requests)

@@ -63,7 +63,23 @@ def host_and_ports(s):
 
         return (parts[0], int(parts[1]), None)
     except ValueError:
-        raise argparse.ArgumentTypeError("{} should be in one of these formats: 'tcp_port', 'host:tcp_port', 'tcp_port:udp_port', 'host:tcp_port:udp_port'")  # noqa
+        raise argparse.ArgumentTypeError("{} should be in one of these formats: 'tcp_port', 'host:tcp_port', 'tcp_port:udp_port', 'host:tcp_port:udp_port'".format(s))  # noqa
+
+
+def partition_id_and_count(s):
+    try:
+        parts = s.split('/')
+        if len(parts) != 2:
+            raise ValueError()
+
+        v = (int(parts[0]), int(parts[1]))
+        if v[0] < 1 or v[0] > v[1]:
+            raise ValueError()
+
+        return v
+
+    except ValueError:
+        raise argparse.ArgumentTypeError("{} should be in the form I/N, where N is the total number of partitions and I is the partition for this server (1..N)".format(s))  # noqa
 
 
 class MlatServer(object):
@@ -127,6 +143,11 @@ class MlatServer(object):
 
         parser.add_argument('--dump-pseudorange',
                             help="dump pseudorange data in json format to a file")
+
+        parser.add_argument('--partition',
+                            help="enable partitioning (n/count)",
+                            type=partition_id_and_count,
+                            default=(1, 1))
 
     def make_arg_parser(self):
         parser = argparse.ArgumentParser(description="Multilateration server.")
@@ -204,7 +225,8 @@ class MlatServer(object):
         args = self.make_arg_parser().parse_args()
 
         self.coordinator = coordinator.Coordinator(work_dir=args.work_dir,
-                                                   pseudorange_filename=args.dump_pseudorange)
+                                                   pseudorange_filename=args.dump_pseudorange,
+                                                   partition=args.partition)
 
         subtasks = self.make_subtasks(args)
 

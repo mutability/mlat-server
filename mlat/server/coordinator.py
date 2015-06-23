@@ -94,7 +94,7 @@ class Coordinator(object):
     """Master coordinator. Receives all messages from receivers and dispatches
     them to clock sync / multilateration / tracking as needed."""
 
-    def __init__(self, work_dir, authenticator=None, pseudorange_filename=None):
+    def __init__(self, work_dir, partition=(1, 1), authenticator=None, pseudorange_filename=None):
         """If authenticator is not None, it should be a callable that takes two arguments:
         the newly created Receiver, plus the 'auth' argument provided by the connection.
         The authenticator may modify the receiver if needed. The authenticator should either
@@ -106,7 +106,7 @@ class Coordinator(object):
         self.receivers = {}    # keyed by uuid
         self.sighup_handlers = []
         self.authenticator = authenticator
-        self.tracker = tracker.Tracker()
+        self.tracker = tracker.Tracker(partition)
         self.clock_tracker = clocktrack.ClockTracker()
         self.mlat_tracker = mlattrack.MlatTracker(self,
                                                   blacklist_filename=work_dir + '/blacklist.txt',
