@@ -149,8 +149,6 @@ class Coordinator(object):
     @asyncio.coroutine
     def write_state(self):
         while True:
-            yield from asyncio.sleep(30.0)
-
             try:
                 sync = {}
                 locations = {}
@@ -176,6 +174,8 @@ class Coordinator(object):
 
             except Exception:
                 glogger.exception("Failed to write state files")
+
+            yield from asyncio.sleep(30.0)
 
     @asyncio.coroutine
     def write_profile(self):
