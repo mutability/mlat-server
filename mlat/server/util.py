@@ -55,3 +55,15 @@ class TaggingLogger(logging.LoggerAdapter):
             return ('[{tag}] {0}'.format(msg, **self.extra), kwargs)
         else:
             return (msg, kwargs)
+
+
+def setproctitle(title):
+    """Set the process title. This implementation does nothing."""
+    pass
+
+
+try:
+    # If the setproctitle module is available, use that.
+    from setproctitle import setproctitle  # noqa
+except ImportError:
+    pass

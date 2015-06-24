@@ -149,6 +149,10 @@ class MlatServer(object):
                             type=partition_id_and_count,
                             default=(1, 1))
 
+        parser.add_argument('--tag',
+                            help="set process name prefix (requires setproctitle module)",
+                            default='mlat-server')
+
     def make_arg_parser(self):
         parser = argparse.ArgumentParser(description="Multilateration server.")
 
@@ -226,7 +230,8 @@ class MlatServer(object):
 
         self.coordinator = coordinator.Coordinator(work_dir=args.work_dir,
                                                    pseudorange_filename=args.dump_pseudorange,
-                                                   partition=args.partition)
+                                                   partition=args.partition,
+                                                   tag=args.tag)
 
         subtasks = self.make_subtasks(args)
 
