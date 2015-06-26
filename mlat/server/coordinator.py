@@ -113,6 +113,9 @@ class Coordinator(object):
                                                   pseudorange_filename=pseudorange_filename)
         self.output_handlers = [self.forward_results]
 
+        self.receiver_mlat = self.mlat_tracker.receiver_mlat
+        self.receiver_sync = self.clock_tracker.receiver_sync
+
     def start(self):
         self._write_state_task = asyncio.async(self.write_state())
         return util.completed_future
@@ -225,20 +228,6 @@ class Coordinator(object):
         # clean up old distance entries
         for other_receiver in self.receivers.values():
             other_receiver.distance.pop(receiver, None)
-
-    def receiver_sync(self, receiver,
-                      even_time, odd_time, even_message, odd_message):
-        """Receive a DF17 message pair for clock synchronization."""
-        self.clock_tracker.receiver_sync(receiver,
-                                         even_time, odd_time,
-                                         even_message, odd_message)
-
-    def receiver_mlat(self, receiver, timestamp, message, utc):
-        """Receive a message for multilateration."""
-        self.mlat_tracker.receiver_mlat(receiver,
-                                        timestamp,
-                                        message,
-                                        utc)
 
     def receiver_tracking_add(self, receiver, icao_set):
         """Update a receiver's tracking set by adding some aircraft."""
