@@ -23,6 +23,7 @@ send us traffic for these.
 """
 
 import asyncio
+from mlat import profile
 from mlat.server import kalman
 
 
@@ -143,6 +144,7 @@ class Tracker(object):
         receiver.sync_interest.clear()
         receiver.mlat_interest.clear()
 
+    @profile.trackcpu
     def update_interest(self, receiver):
         """Update the interest sets of one receiver based on the
         latest tracking and rate report data."""

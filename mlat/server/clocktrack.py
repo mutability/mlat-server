@@ -96,6 +96,7 @@ class ClockTracker(object):
         for k in prune:
             del self.clock_pairs[k]
 
+    @profile.trackcpu
     def receiver_clock_reset(self, receiver):
         """
         Called by the coordinator when we should drop our clock sync
@@ -108,6 +109,7 @@ class ClockTracker(object):
             if k[0] is receiver or k[1] is receiver:
                 del self.clock_pairs[k]
 
+    @profile.trackcpu
     def receiver_disconnect(self, receiver):
         """
         Called by the coordinator when a receiver disconnects.
@@ -290,6 +292,7 @@ class ClockTracker(object):
         # update syncpoint with the new receiver and we're done
         syncpoint.receivers.append(r0l)
 
+    @profile.trackcpu
     def _cleanup_syncpoint(self, key, syncpoint):
         """Expire a syncpoint. This happens ~2 seconds after the first copy
         of a message pair is received.

@@ -304,6 +304,7 @@ class MlatTracker(object):
             self.pseudorange_file.write('\n')
 
 
+@profile.trackcpu
 def _cluster_timestamps(component, min_receivers):
     """Given a component that has normalized timestamps:
 

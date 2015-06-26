@@ -74,6 +74,7 @@ class Receiver(object):
         self.sync_interest = new_sync
         self.mlat_interest = new_mlat
 
+    @profile.trackcpu
     def refresh_traffic_requests(self):
         self.requested = {x for x in self.tracking if x.interesting}
         self.connection.request_traffic(self, {x.icao for x in self.requested})
@@ -254,6 +255,7 @@ class Coordinator(object):
     def wait_closed(self):
         util.safe_wait([self._write_state_task, self._write_profile_task])
 
+    @profile.trackcpu
     def new_receiver(self, connection, uuid, user, auth, position_llh, clock_type, privacy, connection_info):
         """Assigns a new receiver ID for a given user.
         Returns the new receiver ID.
@@ -288,6 +290,7 @@ class Coordinator(object):
             receiver.distance[other_receiver] = distance
             other_receiver.distance[receiver] = distance
 
+    @profile.trackcpu
     def receiver_location_update(self, receiver, position_llh):
         """Note that a given receiver has moved."""
         receiver.position_llh = position_llh
@@ -295,6 +298,7 @@ class Coordinator(object):
 
         self._compute_interstation_distances(receiver)
 
+    @profile.trackcpu
     def receiver_disconnect(self, receiver):
         """Notes that the given receiver has disconnected."""
 
@@ -307,6 +311,7 @@ class Coordinator(object):
         for other_receiver in self.receivers.values():
             other_receiver.distance.pop(receiver, None)
 
+    @profile.trackcpu
     def receiver_tracking_add(self, receiver, icao_set):
         """Update a receiver's tracking set by adding some aircraft."""
         self.tracker.add(receiver, icao_set)
@@ -314,6 +319,7 @@ class Coordinator(object):
             # not receiving rate reports for this receiver
             self.tracker.update_interest(receiver)
 
+    @profile.trackcpu
     def receiver_tracking_remove(self, receiver, icao_set):
         """Update a receiver's tracking set by removing some aircraft."""
         self.tracker.remove(receiver, icao_set)
@@ -321,15 +327,18 @@ class Coordinator(object):
             # not receiving rate reports for this receiver
             self.tracker.update_interest(receiver)
 
+    @profile.trackcpu
     def receiver_clock_reset(self, receiver):
         """Reset current clock synchronization for a receiver."""
         self.clock_tracker.receiver_clock_reset(receiver)
 
+    @profile.trackcpu
     def receiver_rate_report(self, receiver, report):
         """Process an ADS-B position rate report for a receiver."""
         receiver.last_rate_report = report
         self.tracker.update_interest(receiver)
 
+    @profile.trackcpu
     def forward_results(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct, dof, kalman_state):
         broadcast = receivers
         ac = self.tracker.aircraft.get(address)
