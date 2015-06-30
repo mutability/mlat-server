@@ -181,18 +181,18 @@ class KalmanState(object):
 
         if self._acquiring and dof < self.min_acquiring_dof:
             # don't trust this result until we have converged
-            return
+            return False
 
         if self._mean is None:
             # acquire an initial position
             glogger.info("{icao:06X} acquiring.".format(icao=self.icao))
             self.last_update = position_time
             self.set_initial_state(leastsquares_position, leastsquares_cov)
-            return
+            return False
 
         if dof < self.min_tracking_dof:
             # don't use this one
-            return
+            return False
 
         # update filter
         zero_pr = measurements[0][1] * constants.Cair
@@ -228,7 +228,7 @@ class KalmanState(object):
 
         dt = position_time - self.last_update
         if dt < 0:
-            return
+            return False
 
         try:
             trans_covar = self.transition_covariance(dt)
@@ -285,10 +285,10 @@ class KalmanState(object):
                 self._outliers += 1
                 if self._outliers < 3 or (position_time - self.last_update) < 15.0:
                     # don't use this one
-                    return
+                    return False
                 glogger.info("{icao:06X} reset due to outliers.".format(icao=self.icao))
                 self._reset()
-                return
+                return False
 
             self._outliers = 0
 
@@ -319,6 +319,7 @@ class KalmanState(object):
                 self._acquiring = True
 
             self.valid = not self._acquiring
+            return self.valid
 
         except Exception:
             glogger.exception("Kalman filter update failed. " +
@@ -329,7 +330,7 @@ class KalmanState(object):
                                   mean=self._mean,
                                   covar=self._cov))
             self._reset()
-            return
+            return False
 
     def set_initial_state(self, leastsquares_position, leastsquares_cov):
         """Set the initial state of the filter from a least-squares result.
