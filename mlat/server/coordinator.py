@@ -264,7 +264,12 @@ class Coordinator(object):
         self.tracker.update_interest(receiver)
 
     def forward_results(self, receive_timestamp, address, ecef, ecef_cov, receivers, distinct, dof, kalman_state):
-        for receiver in receivers:
+        broadcast = receivers
+        ac = self.tracker.aircraft.get(address)
+        if ac:
+            ac.successful_mlat.update(receivers)
+            broadcast = ac.successful_mlat
+        for receiver in broadcast:
             try:
                 receiver.connection.report_mlat_position(receiver,
                                                          receive_timestamp, address,

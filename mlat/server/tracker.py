@@ -47,6 +47,10 @@ class TrackedAircraft(object):
         # invariant: r.mlat_interest.contains(a) iff a.mlat_interest.contains(r)
         self.mlat_interest = set()
 
+        # set of receivers that have contributed to at least one multilateration
+        # result. This is used to decide who to forward results to.
+        self.successful_mlat = set()
+
         # last reported altitude (for multilaterated aircraft)
         self.altitude = None
         # time of last altitude (time.monotonic())
@@ -98,6 +102,7 @@ class Tracker(object):
                 continue
 
             ac.tracking.discard(receiver)
+            ac.successful_mlat.discard(receiver)
             receiver.tracking.discard(ac)
             if not ac.tracking:
                 del self.aircraft[icao]
@@ -105,6 +110,7 @@ class Tracker(object):
     def remove_all(self, receiver):
         for ac in receiver.tracking:
             ac.tracking.discard(receiver)
+            ac.successful_mlat.discard(receiver)
             ac.sync_interest.discard(receiver)
             ac.mlat_interest.discard(receiver)
             if not ac.tracking:
