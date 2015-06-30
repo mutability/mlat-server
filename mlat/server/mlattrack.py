@@ -250,8 +250,10 @@ class MlatTracker(object):
         ac.last_result_var = var_est
         ac.last_result_dof = dof
         ac.last_result_time = cluster_utc
+        ac.mlat_result_count += 1
 
-        ac.kalman.update(cluster_utc, cluster, altitude, altitude_error, ecef, ecef_cov, distinct, dof)
+        if ac.kalman.update(cluster_utc, cluster, altitude, altitude_error, ecef, ecef_cov, distinct, dof):
+            ac.mlat_kalman_count += 1
 
         if altitude is None:
             _, _, solved_alt = geodesy.ecef2llh(ecef)

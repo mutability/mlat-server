@@ -56,6 +56,10 @@ class TrackedAircraft(object):
 
         # number of mlat message resolves attempted
         self.mlat_message_count = 0
+        # number of mlat messages that produced valid least-squares results
+        self.mlat_result_count = 0
+        # number of mlat messages that produced valid kalman state updates
+        self.mlat_kalman_count = 0
 
         # last reported altitude (for multilaterated aircraft)
         self.altitude = None
