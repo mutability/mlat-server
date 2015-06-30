@@ -151,16 +151,29 @@ class Coordinator(object):
     @asyncio.coroutine
     def write_state(self):
         while True:
+            mlat_count = 0
+            sync_count = 0
+            for ac in self.tracker.aircraft.values():
+                if ac.interesting:
+                    if ac.sync_interest:
+                        sync_count += 1
+                    if ac.mlat_interest:
+                        mlat_count += 1
+
             if self.partition[1] > 1:
-                util.setproctitle('{tag} {i}/{n} ({r} clients)'.format(
+                util.setproctitle('{tag} {i}/{n} ({r} clients) ({m} mlat {s} sync)'.format(
                     tag=self.tag,
                     i=self.partition[0],
                     n=self.partition[1],
-                    r=len(self.receivers)))
+                    r=len(self.receivers),
+                    m=mlat_count,
+                    s=sync_count))
             else:
-                util.setproctitle('{tag} ({r} clients)'.format(
+                util.setproctitle('{tag} ({r} clients) ({m} mlat {s} sync)'.format(
                     tag=self.tag,
-                    r=len(self.receivers)))
+                    r=len(self.receivers),
+                    m=mlat_count,
+                    s=sync_count))
 
             try:
                 sync = {}
