@@ -29,9 +29,12 @@ from mlat.server import kalman
 class TrackedAircraft(object):
     """A single tracked aircraft."""
 
-    def __init__(self, icao):
+    def __init__(self, icao, allow_mlat):
         # ICAO address of this aircraft
         self.icao = icao
+
+        # Allow mlat of this aircraft?
+        self.allow_mlat = allow_mlat
 
         # set of receivers that can see this aircraft.
         # invariant: r.tracking.contains(a) iff a.tracking.contains(r)
@@ -73,7 +76,7 @@ class TrackedAircraft(object):
     @property
     def interesting(self):
         """Is this aircraft interesting, i.e. should we forward traffic for it?"""
-        return bool(self.sync_interest or len(self.mlat_interest) >= 3)
+        return bool(self.sync_interest or (self.allow_mlat and len(self.mlat_interest) >= 3))
 
     def __lt__(self, other):
         return self.icao < other.icao
@@ -88,26 +91,22 @@ class Tracker(object):
         self.partition_id = partition[0] - 1
         self.partition_count = partition[1]
 
-    def apply_partition(self, mlat_set):
+    def in_local_partition(self, icao):
         if self.partition_count == 1:
-            return mlat_set
+            return True
 
-        newset = set()
-        for ac in mlat_set:
-            # mix the address a bit
-            h = ac.icao
-            h = ((h >> 16) ^ h) * 0x45d9f3b
-            h = ((h >> 16) ^ h) * 0x45d9f3b
-            h = ((h >> 16) ^ h)
-            if (h % self.partition_count) == self.partition_id:
-                newset.add(ac)
-        return newset
+        # mix the address a bit
+        h = icao
+        h = (((h >> 16) ^ h) * 0x45d9f3b) & 0xFFFFFFFF
+        h = (((h >> 16) ^ h) * 0x45d9f3b) & 0xFFFFFFFF
+        h = ((h >> 16) ^ h)
+        return bool((h % self.partition_count) == self.partition_id)
 
     def add(self, receiver, icao_set):
         for icao in icao_set:
             ac = self.aircraft.get(icao)
             if ac is None:
-                ac = self.aircraft[icao] = TrackedAircraft(icao)
+                ac = self.aircraft[icao] = TrackedAircraft(icao, self.in_local_partition(icao))
 
             ac.tracking.add(receiver)
             receiver.tracking.add(ac)
@@ -144,8 +143,7 @@ class Tracker(object):
         if receiver.last_rate_report is None:
             # Legacy client, no rate report, we cannot be very selective.
             new_sync = {ac for ac in receiver.tracking if len(ac.tracking) > 1}
-            new_mlat = receiver.tracking.copy()
-            new_mlat = self.apply_partition(new_mlat)
+            new_mlat = {ac for ac in receiver.tracking if ac.allow_mlat}
             receiver.update_interest_sets(new_sync, new_mlat)
             asyncio.get_event_loop().call_later(15.0, receiver.refresh_traffic_requests)
             return
@@ -202,9 +200,8 @@ class Tracker(object):
         # transmitting positions)
         new_mlat_set = set()
         for ac in receiver.tracking:
-            if ac.icao not in receiver.last_rate_report:
+            if ac.icao not in receiver.last_rate_report and ac.allow_mlat:
                 new_mlat_set.add(ac)
 
-        new_mlat_set = self.apply_partition(new_mlat_set)
         receiver.update_interest_sets(new_sync_set, new_mlat_set)
         asyncio.get_event_loop().call_later(15.0, receiver.refresh_traffic_requests)

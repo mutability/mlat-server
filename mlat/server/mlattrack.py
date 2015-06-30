@@ -110,6 +110,10 @@ class MlatTracker(object):
         if not ac:
             return
 
+        if not ac.allow_mlat:
+            glogger.info("not doing mlat for {0:06x}, wrong partition!".format(ac.icao))
+            return
+
         # When we've seen a few copies of the same message, it's
         # probably correct. Update the tracker with newly seen
         # altitudes, squawks, callsigns.
