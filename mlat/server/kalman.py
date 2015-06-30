@@ -278,9 +278,8 @@ class KalmanState(object):
             # If the Mahalanobis distance is very large this observation is an
             # outlier
             if md > self.outlier_mahalanobis_distance:
-                glogger.info("{icao:06X} skip innov={innovation} md={md}".format(
+                glogger.info("{icao:06X} outlier: md={md:.1f}".format(
                     icao=self.icao,
-                    innovation=innovation,
                     md=md))
 
                 self._outliers += 1
