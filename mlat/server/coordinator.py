@@ -163,6 +163,8 @@ class Coordinator(object):
             s['sync_interest'] = len(ac.sync_interest)
             s['mlat_interest'] = len(ac.mlat_interest)
             s['mlat_message_count'] = ac.mlat_message_count
+            s['mlat_result_count'] = ac.mlat_result_count
+            s['mlat_kalman_count'] = ac.mlat_kalman_count
 
             if ac.last_result_time is not None and ac.kalman.valid:
                 s['last_result'] = round(now - ac.last_result_time, 1)
