@@ -54,6 +54,9 @@ class TrackedAircraft(object):
         # result. This is used to decide who to forward results to.
         self.successful_mlat = set()
 
+        # number of mlat message resolves attempted
+        self.mlat_message_count = 0
+
         # last reported altitude (for multilaterated aircraft)
         self.altitude = None
         # time of last altitude (time.monotonic())

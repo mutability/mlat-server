@@ -110,6 +110,8 @@ class MlatTracker(object):
         if not ac:
             return
 
+        ac.mlat_message_count += 1
+
         if not ac.allow_mlat:
             glogger.info("not doing mlat for {0:06x}, wrong partition!".format(ac.icao))
             return

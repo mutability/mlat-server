@@ -25,9 +25,10 @@ import signal
 import asyncio
 import json
 import logging
+import time
 from contextlib import closing
 
-from mlat import geodesy, profile
+from mlat import geodesy, profile, constants
 from mlat.server import tracker, clocksync, clocktrack, mlattrack, util
 
 glogger = logging.getLogger("coordinator")
@@ -148,56 +149,84 @@ class Coordinator(object):
         for handler in self.sighup_handlers[:]:
             handler()
 
+    @profile.trackcpu
+    def _really_write_state(self):
+        aircraft_state = {}
+        mlat_count = 0
+        sync_count = 0
+        now = time.time()
+        for ac in self.tracker.aircraft.values():
+            s = aircraft_state['{0:06X}'.format(ac.icao)] = {}
+            s['interesting'] = 1 if ac.interesting else 0
+            s['allow_mlat'] = 1 if ac.allow_mlat else 0
+            s['tracking'] = len(ac.tracking)
+            s['sync_interest'] = len(ac.sync_interest)
+            s['mlat_interest'] = len(ac.mlat_interest)
+            s['mlat_message_count'] = ac.mlat_message_count
+
+            if ac.last_result_time is not None and ac.kalman.valid:
+                s['last_result'] = round(now - ac.last_result_time, 1)
+                lat, lon, alt = ac.kalman.position_llh
+                s['lat'] = round(lat, 3)
+                s['lon'] = round(lon, 3)
+                s['alt'] = round(alt * constants.MTOF, 0)
+                s['heading'] = round(ac.kalman.heading, 0)
+                s['speed'] = round(ac.kalman.ground_speed, 0)
+
+            if ac.interesting:
+                if ac.sync_interest:
+                    sync_count += 1
+                if ac.mlat_interest:
+                    mlat_count += 1
+
+        if self.partition[1] > 1:
+            util.setproctitle('{tag} {i}/{n} ({r} clients) ({m} mlat {s} sync {t} tracked)'.format(
+                tag=self.tag,
+                i=self.partition[0],
+                n=self.partition[1],
+                r=len(self.receivers),
+                m=mlat_count,
+                s=sync_count,
+                t=len(self.tracker.aircraft)))
+        else:
+            util.setproctitle('{tag} ({r} clients) ({m} mlat {s} sync {t} tracked)'.format(
+                tag=self.tag,
+                r=len(self.receivers),
+                m=mlat_count,
+                s=sync_count,
+                t=len(self.tracker.aircraft)))
+
+        sync = {}
+        locations = {}
+
+        for r in self.receivers.values():
+            sync[r.uuid] = {
+                'peers': self.clock_tracker.dump_receiver_state(r)
+            }
+            locations[r.uuid] = {
+                'user': r.user,
+                'lat': r.position_llh[0],
+                'lon': r.position_llh[1],
+                'alt': r.position_llh[2],
+                'privacy': r.privacy,
+                'connection': r.connection_info
+            }
+
+        with closing(open(self.work_dir + '/sync.json', 'w')) as f:
+            json.dump(sync, fp=f, indent=True)
+
+        with closing(open(self.work_dir + '/locations.json', 'w')) as f:
+            json.dump(locations, fp=f, indent=True)
+
+        with closing(open(self.work_dir + '/aircraft.json', 'w')) as f:
+            json.dump(aircraft_state, fp=f, indent=True)
+
+
     @asyncio.coroutine
     def write_state(self):
         while True:
-            mlat_count = 0
-            sync_count = 0
-            for ac in self.tracker.aircraft.values():
-                if ac.interesting:
-                    if ac.sync_interest:
-                        sync_count += 1
-                    if ac.mlat_interest:
-                        mlat_count += 1
-
-            if self.partition[1] > 1:
-                util.setproctitle('{tag} {i}/{n} ({r} clients) ({m} mlat {s} sync)'.format(
-                    tag=self.tag,
-                    i=self.partition[0],
-                    n=self.partition[1],
-                    r=len(self.receivers),
-                    m=mlat_count,
-                    s=sync_count))
-            else:
-                util.setproctitle('{tag} ({r} clients) ({m} mlat {s} sync)'.format(
-                    tag=self.tag,
-                    r=len(self.receivers),
-                    m=mlat_count,
-                    s=sync_count))
-
             try:
-                sync = {}
-                locations = {}
-
-                for r in self.receivers.values():
-                    sync[r.uuid] = {
-                        'peers': self.clock_tracker.dump_receiver_state(r)
-                    }
-                    locations[r.uuid] = {
-                        'user': r.user,
-                        'lat': r.position_llh[0],
-                        'lon': r.position_llh[1],
-                        'alt': r.position_llh[2],
-                        'privacy': r.privacy,
-                        'connection': r.connection_info
-                    }
-
-                with closing(open(self.work_dir + '/sync.json', 'w')) as f:
-                    json.dump(sync, fp=f, indent=True)
-
-                with closing(open(self.work_dir + '/locations.json', 'w')) as f:
-                    json.dump(locations, fp=f, indent=True)
-
+                self._really_write_state()
             except Exception:
                 glogger.exception("Failed to write state files")
 
