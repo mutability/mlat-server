@@ -65,7 +65,6 @@ else:
         elapsed_cpu = time.clock_gettime(time.CLOCK_THREAD_CPUTIME_ID) - baseline_cpu
         elapsed_wall = time.monotonic() - baseline_wall
 
-
         print('Elapsed: {wall:.1f}   CPU: {cpu:.1f} ({percent:.0f}%)'.format(
             wall=elapsed_wall,
             cpu=elapsed_cpu,

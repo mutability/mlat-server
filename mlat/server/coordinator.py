@@ -224,7 +224,6 @@ class Coordinator(object):
         with closing(open(self.work_dir + '/aircraft.json', 'w')) as f:
             json.dump(aircraft_state, fp=f, indent=True)
 
-
     @asyncio.coroutine
     def write_state(self):
         while True:
