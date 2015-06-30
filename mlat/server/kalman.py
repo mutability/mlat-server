@@ -152,7 +152,7 @@ class KalmanState(object):
         C = numpy.array([[-math.sin(lon_r), math.cos(lon_r), 0],
                          [math.sin(-lat_r) * math.cos(lon_r), math.sin(-lat_r) * math.sin(lon_r), math.cos(-lat_r)],
                          [math.cos(-lat_r) * math.cos(lon_r), math.cos(-lat_r) * math.sin(lon_r), -math.sin(-lat_r)]])
-        east, north, up = numpy.dot(C, self.velocity.T).T
+        east, north, up = self.velocity_enu = numpy.dot(C, self.velocity.T).T
 
         # extract speeds, headings
         self.heading = math.atan2(east, north) * 180.0 / math.pi
