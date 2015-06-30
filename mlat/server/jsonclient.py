@@ -656,12 +656,14 @@ class JsonClient(connection.Connection):
 
     # one of these is assigned to report_mlat_position:
     def report_mlat_position_discard(self, receiver,
-                                     receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
+                                     receive_timestamp, address, ecef, ecef_cov, receivers, distinct,
+                                     dof, kalman_state):
         # client is not interested
         pass
 
     def report_mlat_position_old(self, receiver,
-                                 receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
+                                 receive_timestamp, address, ecef, ecef_cov, receivers, distinct,
+                                 dof, kalman_state):
         # old client, use the old format (somewhat incomplete)
         lat, lon, alt = geodesy.ecef2llh(ecef)
         ac = self.coordinator.tracker.aircraft[address]
@@ -682,7 +684,8 @@ class JsonClient(connection.Connection):
                           'nstations': len(receivers)})
 
     def report_mlat_position_ecef(self, receiver,
-                                  receive_timestamp, address, ecef, ecef_cov, receivers, distinct):
+                                  receive_timestamp, address, ecef, ecef_cov, receivers, distinct,
+                                  dof, kalman_state):
         # newer client
         result = {'@': round(receive_timestamp, 3),
                   'addr': '{0:06x}'.format(address),

@@ -273,7 +273,8 @@ class Coordinator(object):
             try:
                 receiver.connection.report_mlat_position(receiver,
                                                          receive_timestamp, address,
-                                                         ecef, ecef_cov, receivers, distinct)
+                                                         ecef, ecef_cov, receivers, distinct,
+                                                         dof, kalman_state)
             except Exception:
                 glogger.exception("Failed to forward result to receiver {r}".format(r=receiver.uuid))
                 # eat the exception so it doesn't break our caller
