@@ -19,7 +19,7 @@
 """
 Maintains state for all aircraft known to some client.
 Works out the set of "interesting" aircraft and arranges for clients to
-send us traffic for thise.
+send us traffic for these.
 """
 
 import asyncio
