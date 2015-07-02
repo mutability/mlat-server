@@ -50,4 +50,4 @@ MLAT_DELAY = 2.5
 SOLVER_MAXFEV = 50
 
 if 'AGPL_SERVER_CODE_URL' not in globals():
-    raise RuntimeError('Please update AGPL_SERVER_CODE_URL in mlat/config.py')
+    raise RuntimeError('Please update AGPL_SERVER_CODE_URL in mlat/server/config.py')
