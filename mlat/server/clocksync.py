@@ -21,9 +21,8 @@ Maintains clock synchronization between individual pairs of receivers.
 """
 
 import math
-import time
-import bisect
 import logging
+from contextlib import closing
 
 __all__ = ('Clock', 'ClockPairing', 'make_clock')
 
@@ -74,193 +73,172 @@ class ClockPairing(object):
         self.peer = peer
         self.base_clock = base.clock
         self.peer_clock = peer.clock
-        self.raw_drift = None
-        self.drift = None
-        self.i_drift = None
-        self.n = 0
-        self.ts_base = []
-        self.ts_peer = []
-        self.var = []
-        self.var_sum = 0.0
-        self.outliers = 0
-        self.cumulative_error = 0.0
 
         self.drift_max = base.clock.max_freq_error + peer.clock.max_freq_error
         self.drift_max_delta = self.drift_max / 10.0
         self.outlier_threshold = 5 * math.sqrt(peer.clock.jitter ** 2 + base.clock.jitter ** 2)   # 5 sigma
 
-        now = time.monotonic()
-        self.expiry = now + 120.0
-        self.validity = now + 30.0
+        # PI controller for relative clock drift term
+        self.raw_drift = None
+        self.cumulative_error = 0.0
 
-    def is_new(self, base_ts):
-        """Returns True if the given base timestamp is in the extrapolation region."""
-        return bool(self.n == 0 or self.ts_base[-1] < base_ts)
+        # and the output of the drift controller
+        self.drift = None
+        self.i_drift = None
 
-    @property
-    def variance(self):
-        """Variance of recent predictions of the sync point versus the actual sync point."""
-        if self.n == 0:
-            return None
-        return self.var_sum / self.n
+        self.reset()
 
-    @property
-    def error(self):
-        """Standard error of recent predictions."""
-        if self.n == 0:
-            return None
-        return math.sqrt(self.var_sum / self.n)
+    def reset(self):
+        self.base_ref = None
+        self.peer_ref = None
+        self.recent_sync_count = self.prev_sync_count = 0
+        self.recent_var_sum = self.prev_var_sum = 0.0
+        self.outliers = 0
+        self._update_derived()
+
+    def periodic_update(self):
+        self.prev_sync_count = self.recent_sync_count
+        self.recent_sync_count = 0
+        self.prev_var_sum = self.recent_var_sum
+        self.recent_var_sum = 0.0
+        self._update_derived()
+
+    def _update_derived(self):
+        self.sync_count = self.recent_sync_count + self.prev_sync_count
+        if not self.sync_count:
+            self.variance = None
+            self.error = None
+        else:
+            self.variance = (self.recent_var_sum + self.prev_var_sum) / self.sync_count
+            self.error = math.sqrt(self.variance)
+
+        if self.raw_drift is None:
+            self.drift = self.i_drift = None
+        else:
+            self.drift = self.raw_drift - self.KI * self.cumulative_error
+            self.i_drift = -self.drift / (1.0 + self.drift)
 
     @property
     def valid(self):
         """True if this pairing is usable for clock syncronization."""
-        return bool(self.n >= 2 and (self.var_sum / self.n) < 16e-12 and
-                    self.outliers == 0 and self.validity > time.monotonic())
+        return bool(self.sync_count >= 2 and
+                    self.error < 4e-6 and
+                    self.outliers == 0)
 
-    def update(self, address, base_ts, peer_ts, base_interval, peer_interval):
+    def update(self, address, base_ts, peer_ts, base_interval, peer_interval, base_distance, base_bearing, peer_distance, peer_bearing):
         """Update the relative drift and offset of this pairing given:
 
-        address: the ICAO address of the sync aircraft, for logging purposes
         base_ts: the timestamp of a recent point in time measured by the base clock
         peer_ts: the timestamp of the same point in time measured by the peer clock
         base_interval: the duration of a recent interval measured by the base clock
         peer_interval: the duration of the same interval measured by the peer clock
 
-        Returns True if the update was used, False if it was an outlier.
+        Returns True if the update was used, False if it was discarded.
         """
 
-        # clean old data
-        self._prune_old_data(base_ts)
-
-        # predict from existing data, compare to actual value
-        if self.n > 0:
-            prediction = self.predict_peer(base_ts)
-            prediction_error = prediction - peer_ts
-
-            if abs(prediction_error) > self.outlier_threshold and abs(prediction_error) > self.error * 5:
-                self.outliers += 1
-                if self.outliers < 5:
-                    # don't accept this one
-                    return False
-        else:
-            prediction_error = 0  # first sync point, no error
-
-        # update clock drift based on interval ratio
-        # this might reject the update
-        if not self._update_drift(address, base_interval, peer_interval):
-            return False
-
-        # update clock offset based on the actual clock values
-        self._update_offset(address, base_ts, peer_ts, prediction_error)
-
-        now = time.monotonic()
-        self.expiry = now + 120.0
-        self.validity = now + 30.0
-        return True
-
-    def _prune_old_data(self, latest_base_ts):
-        i = 0
-        while i < self.n and (latest_base_ts - self.ts_base[i]) > 30.0:
-            i += 1
-
-        if i > 0:
-            del self.ts_base[0:i]
-            del self.ts_peer[0:i]
-            del self.var[0:i]
-            self.n -= i
-            self.var_sum = sum(self.var)
-
-    def _update_drift(self, address, base_interval, peer_interval):
-        # try to reduce the effects of catastropic cancellation here:
-        #new_drift = (peer_interval / base_interval) - 1.0
+        # check drift, discard out of range values early
         new_drift = (peer_interval - base_interval) / base_interval
-
         if abs(new_drift) > self.drift_max:
             # Bad data, ignore entirely
             return False
 
-        if self.drift is None:
+        outlier = False
+
+        if self.raw_drift is not None:
+            drift_error = new_drift - self.raw_drift
+            if abs(drift_error) > self.drift_max_delta:
+                # Too far away from the value we expect
+                outlier = True
+
+        # predict from existing data, compare to actual value
+        if self.sync_count > 0:
+            if base_ts < self.base_ref and peer_ts < self.peer_ref:
+                # it's in the past, discard
+                return False
+
+            prediction = self.predict_peer(base_ts)
+            prediction_error = prediction - peer_ts
+
+            if ((base_ts < self.base_ref or peer_ts < self.peer_ref or
+                 (abs(prediction_error) > self.outlier_threshold and abs(prediction_error) > self.error * 5))):
+                outlier = True
+        else:
+            prediction = None
+            prediction_error = 0  # first sync point, no error
+
+        if outlier:
+            self.outliers += 1
+            if self.outliers < 5:
+                # don't accept this one
+                return False
+
+        if abs(prediction_error) > self.outlier_threshold:
+            if prediction_error > 0:
+                glogger.info("{r}: {peer} clock was {e:.1f}us slower than predicted, {a:06X} {d0:.1f}@{b0:.0f} / {d1:.1f}@{b1:.0f}".format(
+                    r=self, peer=self.peer, e=prediction_error * 1e6, a=address, d0=base_distance/1e3, b0=base_bearing, d1=peer_distance/1e3, b1=peer_bearing))
+            else:
+                glogger.info("{r}: {peer} clock was {e:.1f}us faster than predicted, {a:06X} {d0:.1f}@{b0:.0f} / {d1:.1f}@{b1:.0f}".format(
+                    r=self, peer=self.peer, e=prediction_error * -1e6, a=address, d0=base_distance/1e3, b0=base_bearing, d1=peer_distance/1e3, b1=peer_bearing))
+
+            with closing(open('steps.csv', 'a')) as f:
+                print('{base},{peer},{address:06X},{base_ts:.7f},{peer_ts:.7f},{error:.1f},{base_distance:.0f},{base_bearing:.0f},{peer_distance:.0f},{peer_bearing:.0f}'.format(
+                    base=self.base,
+                    peer=self.peer,
+                    address=address,
+                    base_ts=base_ts,
+                    peer_ts=peer_ts,
+                    error=prediction_error*1e6,
+                    base_distance=base_distance,
+                    base_bearing=base_bearing,
+                    peer_distance=peer_distance,
+                    peer_bearing=peer_bearing), file=f)
+
+        # update drift
+        if self.raw_drift is None:
             # First sample, just trust it outright
-            self.raw_drift = self.drift = new_drift
-            self.i_drift = -self.drift / (1.0 + self.drift)
-            return True
+            self.raw_drift = new_drift
+        else:
+            # move towards the new value
+            self.raw_drift += drift_error * self.KP
 
-        drift_error = new_drift - self.raw_drift
-        if abs(drift_error) > self.drift_max_delta:
-            # Too far away from the value we expect, discard
-            return False
+        # update clock offset based on the actual clock values
 
-        # move towards the new value
-        self.raw_drift += drift_error * self.KP
-        self.drift = self.raw_drift - self.KI * self.cumulative_error
-        self.i_drift = -self.drift / (1.0 + self.drift)
-        return True
-
-    def _update_offset(self, address, base_ts, peer_ts, prediction_error):
-        # insert this into self.ts_base / self.ts_peer / self.var in the right place
-        if self.n != 0:
-            assert base_ts > self.ts_base[-1]
-
-            # ts_base and ts_peer define a function constructed by linearly
-            # interpolating between each pair of values.
-            #
-            # This function must be monotonically increasing or one of our clocks
-            # has effectively gone backwards. If this happens, give up and start
-            # again.
-
-            if peer_ts < self.ts_peer[-1]:
-                glogger.info("{0}: monotonicity broken, reset".format(self))
-                self.ts_base = []
-                self.ts_peer = []
-                self.var = []
-                self.var_sum = 0
-                self.cumulative_error = 0
-                self.n = 0
-
-        self.n += 1
-        self.ts_base.append(base_ts)
-        self.ts_peer.append(peer_ts)
+        if prediction is None or abs(prediction_error) > 10e-6:
+            # converge directly to the new value
+            self.base_ref = base_ts
+            self.peer_ref = peer_ts
+        else:
+            # smooth this a little as there's inherent jitter in the beacon measurements due
+            #  * underlying errors in the aircraft's measured position
+            #  * aircraft motion between determining the position and transmitting it
+            self.base_ref = base_ts
+            self.peer_ref = prediction - prediction_error * 0.5
 
         p_var = prediction_error ** 2
-        self.var.append(p_var)
-        self.var_sum += p_var
+        self.recent_var_sum += p_var
+        self.recent_sync_count += 1
 
         # if we are accepting an outlier, do not include it in our integral term
         if not self.outliers:
             self.cumulative_error = max(-50e-6, min(50e-6, self.cumulative_error + prediction_error))  # limit to 50us
 
-        self.outliers = max(0, self.outliers - 2)
-
-        if self.outliers and abs(prediction_error) > self.outlier_threshold:
-            glogger.info("{r}: {a:06X}: step by {e:.1f}us".format(r=self, a=address, e=prediction_error*1e6))
+        self.outliers = 0
+        self._update_derived()
+        return True
 
     def predict_peer(self, base_ts):
         """
         Given a time from the base clock, predict the time of the peer clock.
         """
 
-        if self.n == 0:
+        if not self.sync_count:
             return None
 
-        i = bisect.bisect_left(self.ts_base, base_ts)
-        if i == 0:
-            # extrapolate before first point
-            elapsed = base_ts - self.ts_base[0]
-            return (self.ts_peer[0] +
-                    elapsed +
-                    elapsed * self.drift)
-        elif i == self.n:
-            # extrapolate after last point
-            elapsed = base_ts - self.ts_base[-1]
-            return (self.ts_peer[-1] +
-                    elapsed +
-                    elapsed * self.drift)
-        else:
-            # interpolate between two points
-            return (self.ts_peer[i-1] +
-                    (self.ts_peer[i] - self.ts_peer[i-1]) *
-                    (base_ts - self.ts_base[i-1]) /
-                    (self.ts_base[i] - self.ts_base[i-1]))
+        # extrapolate after anchor point
+        elapsed = base_ts - self.base_ref
+        return (self.peer_ref +
+                elapsed +
+                elapsed * self.drift)
 
     def predict_base(self, peer_ts):
         """
@@ -268,28 +246,14 @@ class ClockPairing(object):
         clock.
         """
 
-        if self.n == 0:
+        if not self.sync_count:
             return None
 
-        i = bisect.bisect_left(self.ts_peer, peer_ts)
-        if i == 0:
-            # extrapolate before first point
-            elapsed = peer_ts - self.ts_peer[0]
-            return (self.ts_base[0] +
-                    elapsed +
-                    elapsed * self.i_drift)
-        elif i == self.n:
-            # extrapolate after last point
-            elapsed = peer_ts - self.ts_peer[-1]
-            return (self.ts_base[-1] +
-                    elapsed +
-                    elapsed * self.i_drift)
-        else:
-            # interpolate between two points
-            return (self.ts_base[i-1] +
-                    (self.ts_base[i] - self.ts_base[i-1]) *
-                    (peer_ts - self.ts_peer[i-1]) /
-                    (self.ts_peer[i] - self.ts_peer[i-1]))
+        # extrapolate after anchor point
+        elapsed = peer_ts - self.peer_ref
+        return (self.base_ref +
+                elapsed +
+                elapsed * self.i_drift)
 
     def __str__(self):
         return self.base.uuid + ':' + self.peer.uuid

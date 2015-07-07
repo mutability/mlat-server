@@ -25,7 +25,6 @@ __all__ = ('SyncPoint', 'ClockTracker')
 
 import asyncio
 import functools
-import time
 import logging
 
 import modes.message
@@ -80,21 +79,15 @@ class ClockTracker(object):
         self.clock_pairs = {}
 
         # schedule periodic cleanup
-        asyncio.get_event_loop().call_later(1.0, self._cleanup)
+        asyncio.get_event_loop().call_later(1.0, self._update)
 
-    def _cleanup(self):
-        """Called periodically to clean up clock pairings that have expired."""
+    def _update(self):
+        """Called periodically to update clock pairings."""
 
-        asyncio.get_event_loop().call_later(30.0, self._cleanup)
+        asyncio.get_event_loop().call_later(30.0, self._update)
 
-        now = time.monotonic()
-        prune = set()
         for k, pairing in self.clock_pairs.items():
-            if pairing.expiry <= now:
-                prune.add(k)
-
-        for k in prune:
-            del self.clock_pairs[k]
+            pairing.periodic_update()
 
     @profile.trackcpu
     def receiver_clock_reset(self, receiver):
@@ -102,12 +95,11 @@ class ClockTracker(object):
         Called by the coordinator when we should drop our clock sync
         state for a given receiver. This happens on input disconnect/
         reconnect.
-
-        (This is actually the same work as receiver_disconnect for the moment)
         """
-        for k in list(self.clock_pairs.keys()):
+        logging.info("{r}: clock reset".format(r=receiver))
+        for k, v in self.clock_pairs.items():
             if k[0] is receiver or k[1] is receiver:
-                del self.clock_pairs[k]
+                v.reset()
 
     @profile.trackcpu
     def receiver_disconnect(self, receiver):
@@ -324,34 +316,44 @@ class ClockTracker(object):
             self.clock_pairs[k] = pairing = clocksync.ClockPairing(r0, r1)
 
         # propagation delays
-        delay0A = geodesy.ecef_distance(posA, r0.position) / constants.Cair
-        delay0B = geodesy.ecef_distance(posB, r0.position) / constants.Cair
-        delay1A = geodesy.ecef_distance(posA, r1.position) / constants.Cair
-        delay1B = geodesy.ecef_distance(posB, r1.position) / constants.Cair
+        distance0A = geodesy.ecef_distance(posA, r0.position)
+        distance0B = geodesy.ecef_distance(posB, r0.position)
+        distance1A = geodesy.ecef_distance(posA, r1.position)
+        distance1B = geodesy.ecef_distance(posB, r1.position)
+
+        delay0A = distance0A / constants.Cair
+        delay0B = distance0B / constants.Cair
+        delay1A = distance1A / constants.Cair
+        delay1B = distance1B / constants.Cair
 
         # compute intervals, adjusted for transmitter motion
         i0 = (t0B - delay0B) - (t0A - delay0A)
         i1 = (t1B - delay1B) - (t1A - delay1A)
 
-        if not pairing.is_new(t0B - delay0B):
-            return True  # timestamp is in the past or duplicated, don't use this
+        # bearing
+        bearing0A = geodesy.ecef_bearing_to(r0.position, posA)
+        bearing1A = geodesy.ecef_bearing_to(r1.position, posA)
 
         # do the update
-        return pairing.update(address, t0B - delay0B, t1B - delay1B, i0, i1)
+        return pairing.update(address, t0B - delay0B, t1B - delay1B, i0, i1, distance0A, bearing0A, distance1A, bearing1A)
 
     def dump_receiver_state(self, receiver):
         state = {}
         for (r0, r1), pairing in self.clock_pairs.items():
-            if pairing.n < 2:
+            if not pairing.sync_count:
                 continue
+
             if r0 is receiver:
-                state[r1.uuid] = [pairing.n,
+                state[r1.uuid] = [pairing.sync_count,
                                   round(pairing.error * 1e6, 1),
                                   round(pairing.drift * 1e6, 2),
-                                  round(pairing.ts_peer[-1] - pairing.ts_base[-1], 7)]
+                                  round(pairing.peer_ref - pairing.base_ref, 7)]
+
             elif r1 is receiver:
-                state[r0.uuid] = [pairing.n,
+                state[r0.uuid] = [pairing.sync_count,
                                   round(pairing.error * 1e6, 1),
                                   round(pairing.i_drift * 1e6, 2),
-                                  round(pairing.ts_base[-1] - pairing.ts_peer[-1], 7)]
-        return state
+                                  round(pairing.base_ref - pairing.peer_ref, 7)]
+        return {
+            'peers': state,
+        }

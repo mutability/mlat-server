@@ -21,6 +21,8 @@ Utility functions to convert between coordinate systems and calculate distances.
 """
 
 import math
+import numpy
+import numpy.linalg
 from . import constants
 
 # WGS84 ellipsoid Earth parameters
@@ -98,3 +100,22 @@ def greatcircle(p0, p1):
 def ecef_distance(p0, p1):
     """Returns the straight-line distance in metres between two ECEF points."""
     return math.sqrt((p0[0] - p1[0])**2 + (p0[1] - p1[1])**2 + (p0[2] - p1[2])**2)
+
+
+def ecef_bearing_to(from_point, to_point):
+    p1 = from_point / numpy.linalg.norm(from_point)
+    p2 = to_point / numpy.linalg.norm(to_point)
+    north_pole = [0, 0, 1]
+
+    c1 = numpy.cross(p1, p2)          # great circle through p1 & p2
+    c2 = numpy.cross(p1, north_pole)  # great circle through p1 & north pole
+
+    # angle between c1 and c2
+    cx = numpy.cross(c1, c2)
+    sin_theta = numpy.linalg.norm(cx)
+    cos_theta = numpy.dot(c1, c2)
+    if numpy.dot(cx, p1) < 0:
+        sin_theta = -sin_theta
+
+    theta = math.degrees(math.atan2(sin_theta, cos_theta))
+    return (theta+360) % 360  # normalise to 0..360

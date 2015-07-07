@@ -203,9 +203,7 @@ class Coordinator(object):
         locations = {}
 
         for r in self.receivers.values():
-            sync[r.uuid] = {
-                'peers': self.clock_tracker.dump_receiver_state(r)
-            }
+            sync[r.uuid] = self.clock_tracker.dump_receiver_state(r)
             locations[r.uuid] = {
                 'user': r.user,
                 'lat': r.position_llh[0],
