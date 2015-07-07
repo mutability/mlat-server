@@ -33,8 +33,7 @@ class _Predictor(object):
         self.variance = variance
 
 
-def _identity_predict(x):
-    return x
+_identity_predict = float
 
 
 def _make_predictors(clocktracker, station0, station1):
@@ -223,11 +222,10 @@ def normalize(clocktracker, timestamp_map):
             central = step
             _, step = _tallest_branch(g, central, heights, ignore=central)
 
-        # Convert timestamps so they are using the clock units of "central"
-        # by walking the spanning tree edges. Then finally convert to wallclock
-        # times as the last step by dividing by the final clock's frequency
+        # Convert timestamps so they are using the clock of "central"
+        # by walking the spanning tree edges.
         results = {}
-        conversion_chain = [_Predictor(lambda x: x/central.clock.freq, central.clock.jitter**2)]
+        conversion_chain = [_Predictor(_identity_predict, central.clock.jitter**2)]
         _convert_timestamps(g, timestamp_map, predictor_map, central, results,
                             conversion_chain, central.clock.jitter**2)
 

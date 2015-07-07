@@ -85,8 +85,6 @@ class ClockPairing(object):
         self.outliers = 0
         self.cumulative_error = 0.0
 
-        self.relative_freq = peer.clock.freq / base.clock.freq
-        self.i_relative_freq = base.clock.freq / peer.clock.freq
         self.drift_max = base.clock.max_freq_error + peer.clock.max_freq_error
         self.drift_max_delta = self.drift_max / 10.0
         self.outlier_threshold = 5 * math.sqrt(peer.clock.jitter ** 2 + base.clock.jitter ** 2)   # 5 sigma
@@ -137,7 +135,7 @@ class ClockPairing(object):
         # predict from existing data, compare to actual value
         if self.n > 0:
             prediction = self.predict_peer(base_ts)
-            prediction_error = (prediction - peer_ts) / self.peer_clock.freq
+            prediction_error = prediction - peer_ts
 
             if abs(prediction_error) > self.outlier_threshold and abs(prediction_error) > self.error * 5:
                 self.outliers += 1
@@ -162,7 +160,7 @@ class ClockPairing(object):
 
     def _prune_old_data(self, latest_base_ts):
         i = 0
-        while i < self.n and (latest_base_ts - self.ts_base[i]) > 30*self.base_clock.freq:
+        while i < self.n and (latest_base_ts - self.ts_base[i]) > 30.0:
             i += 1
 
         if i > 0:
@@ -174,9 +172,8 @@ class ClockPairing(object):
 
     def _update_drift(self, address, base_interval, peer_interval):
         # try to reduce the effects of catastropic cancellation here:
-        #new_drift = (peer_interval / base_interval) / self.relative_freq - 1.0
-        adjusted_base_interval = base_interval * self.relative_freq
-        new_drift = (peer_interval - adjusted_base_interval) / adjusted_base_interval
+        #new_drift = (peer_interval / base_interval) - 1.0
+        new_drift = (peer_interval - base_interval) / base_interval
 
         if abs(new_drift) > self.drift_max:
             # Bad data, ignore entirely
@@ -250,14 +247,14 @@ class ClockPairing(object):
             # extrapolate before first point
             elapsed = base_ts - self.ts_base[0]
             return (self.ts_peer[0] +
-                    elapsed * self.relative_freq +
-                    elapsed * self.relative_freq * self.drift)
+                    elapsed +
+                    elapsed * self.drift)
         elif i == self.n:
             # extrapolate after last point
             elapsed = base_ts - self.ts_base[-1]
             return (self.ts_peer[-1] +
-                    elapsed * self.relative_freq +
-                    elapsed * self.relative_freq * self.drift)
+                    elapsed +
+                    elapsed * self.drift)
         else:
             # interpolate between two points
             return (self.ts_peer[i-1] +
@@ -279,14 +276,14 @@ class ClockPairing(object):
             # extrapolate before first point
             elapsed = peer_ts - self.ts_peer[0]
             return (self.ts_base[0] +
-                    elapsed * self.i_relative_freq +
-                    elapsed * self.i_relative_freq * self.i_drift)
+                    elapsed +
+                    elapsed * self.i_drift)
         elif i == self.n:
             # extrapolate after last point
             elapsed = peer_ts - self.ts_peer[-1]
             return (self.ts_base[-1] +
-                    elapsed * self.i_relative_freq +
-                    elapsed * self.i_relative_freq * self.i_drift)
+                    elapsed +
+                    elapsed * self.i_drift)
         else:
             # interpolate between two points
             return (self.ts_base[i-1] +

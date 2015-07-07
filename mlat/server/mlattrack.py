@@ -93,7 +93,7 @@ class MlatTracker(object):
                 self._resolve,
                 group)
 
-        group.copies.append((receiver, timestamp, utc))
+        group.copies.append((receiver, timestamp / receiver.clock.freq, utc))
         group.first_seen = min(group.first_seen, utc)
 
     @profile.trackcpu

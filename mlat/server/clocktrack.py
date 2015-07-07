@@ -150,10 +150,14 @@ class ClockTracker(object):
         odd_time: the time of arrival of odd_message, as seen by receiver.clock
         """
 
+        # convert to seconds
+        even_time = even_time / receiver.clock.freq
+        odd_time = odd_time / receiver.clock.freq
+
         # Do sanity checks.
 
         # Messages must be within 5 seconds of each other.
-        if abs(even_time - odd_time) / receiver.clock.freq > 5.0:
+        if abs(even_time - odd_time) > 5.0:
             return
 
         # compute key and interval
@@ -166,7 +170,7 @@ class ClockTracker(object):
             tB = even_time
             key = (odd_message, even_message)
 
-        interval = (tB - tA) / receiver.clock.freq
+        interval = (tB - tA)
 
         # do we have a suitable existing match?
         syncpointlist = self.sync_points.get(key)
@@ -319,11 +323,11 @@ class ClockTracker(object):
         if pairing is None:
             self.clock_pairs[k] = pairing = clocksync.ClockPairing(r0, r1)
 
-        # propagation delays, in clock units
-        delay0A = geodesy.ecef_distance(posA, r0.position) * r0.clock.freq / constants.Cair
-        delay0B = geodesy.ecef_distance(posB, r0.position) * r0.clock.freq / constants.Cair
-        delay1A = geodesy.ecef_distance(posA, r1.position) * r1.clock.freq / constants.Cair
-        delay1B = geodesy.ecef_distance(posB, r1.position) * r1.clock.freq / constants.Cair
+        # propagation delays
+        delay0A = geodesy.ecef_distance(posA, r0.position) / constants.Cair
+        delay0B = geodesy.ecef_distance(posB, r0.position) / constants.Cair
+        delay1A = geodesy.ecef_distance(posA, r1.position) / constants.Cair
+        delay1B = geodesy.ecef_distance(posB, r1.position) / constants.Cair
 
         # compute intervals, adjusted for transmitter motion
         i0 = (t0B - delay0B) - (t0A - delay0A)
@@ -344,10 +348,10 @@ class ClockTracker(object):
                 state[r1.uuid] = [pairing.n,
                                   round(pairing.error * 1e6, 1),
                                   round(pairing.drift * 1e6, 2),
-                                  pairing.ts_peer[-1] - pairing.ts_base[-1]]
+                                  round(pairing.ts_peer[-1] - pairing.ts_base[-1], 7)]
             elif r1 is receiver:
                 state[r0.uuid] = [pairing.n,
                                   round(pairing.error * 1e6, 1),
                                   round(pairing.i_drift * 1e6, 2),
-                                  pairing.ts_base[-1] - pairing.ts_peer[-1]]
+                                  round(pairing.ts_base[-1] - pairing.ts_peer[-1], 7)]
         return state
