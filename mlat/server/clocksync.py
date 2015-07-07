@@ -284,7 +284,7 @@ class ClockPairing(object):
         elif i == self.n:
             # extrapolate after last point
             elapsed = peer_ts - self.ts_peer[-1]
-            return (elapsed +
+            return (self.ts_base[-1] +
                     elapsed * self.i_relative_freq +
                     elapsed * self.i_relative_freq * self.i_drift)
         else:
