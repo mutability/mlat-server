@@ -346,14 +346,14 @@ class ClockTracker(object):
             if r0 is receiver:
                 state[r1.uuid] = [pairing.sync_count,
                                   round(pairing.error * 1e6, 1),
-                                  round(pairing.drift * 1e6, 2),
-                                  round(pairing.peer_ref - pairing.base_ref, 7)]
+                                  round((pairing.scale - 1.0) * 1e6, 2),
+                                  round(pairing.offset, 7)]
 
             elif r1 is receiver:
                 state[r0.uuid] = [pairing.sync_count,
                                   round(pairing.error * 1e6, 1),
-                                  round(pairing.i_drift * 1e6, 2),
-                                  round(pairing.base_ref - pairing.peer_ref, 7)]
+                                  round((pairing.i_scale - 1.0) * 1e6, 2),
+                                  round(pairing.i_offset, 7)]
         return {
             'peers': state,
         }
