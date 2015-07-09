@@ -28,12 +28,21 @@ from mlat import profile
 
 class _Predictor(object):
     """Simple object for holding prediction state"""
-    def __init__(self, predict, variance):
-        self.predict = predict
+    def __init__(self, scale, offset, variance):
+        self.scale = scale
+        self.offset = offset
         self.variance = variance
 
+    def predict(self, ts):
+        return self.offset + ts * self.scale
 
-_identity_predict = float
+    def combined_with(self, p):
+        # return a predictor R such that:
+        #   R.variance = self.variance + p.variance
+        #   R.predict(x) = self.predict(p.predict(x))
+        return _Predictor(self.scale * p.scale,
+                          self.offset + p.offset * self.scale,
+                          self.variance + p.variance)
 
 
 def _make_predictors(clocktracker, station0, station1):
@@ -51,21 +60,21 @@ def _make_predictors(clocktracker, station0, station1):
 
     if station0.clock.epoch is not None and station0.clock.epoch == station1.clock.epoch:
         # Assume clocks are closely synchronized to the epoch (and therefore to each other)
-        predictor = _Predictor(_identity_predict, station0.clock.jitter ** 2 + station1.clock.jitter ** 2)
+        predictor = _Predictor(1.0, 0.0, station0.clock.jitter ** 2 + station1.clock.jitter ** 2)
         return (predictor, predictor)
 
     if station0 < station1:
         pairing = clocktracker.clock_pairs.get((station0, station1))
         if pairing is None or not pairing.valid:
             return None
-        return (_Predictor(pairing.predict_peer, pairing.variance),
-                _Predictor(pairing.predict_base, pairing.variance))
+        return (_Predictor(pairing.scale, pairing.offset, pairing.variance),
+                _Predictor(pairing.i_scale, pairing.i_offset, pairing.variance))
     else:
         pairing = clocktracker.clock_pairs.get((station1, station0))
         if pairing is None or not pairing.valid:
             return None
-        return (_Predictor(pairing.predict_base, pairing.variance),
-                _Predictor(pairing.predict_peer, pairing.variance))
+        return (_Predictor(pairing.i_scale, pairing.i_offset, pairing.variance),
+                _Predictor(pairing.scale, pairing.offset, pairing.variance))
 
 
 def _label_heights(g, node, heights):
@@ -100,34 +109,32 @@ def _tallest_branch(g, node, heights, ignore=None):
     return tallest
 
 
-def _convert_timestamps(g, timestamp_map, predictor_map, node, results, conversion_chain, variance):
+def _convert_timestamps(g, timestamp_map, predictor_map, node, results, predictor):
     """Rewrite node and all unvisited nodes reachable from node using the
     chain of clocksync objects in conversion_chain, populating the results dict.
 
     node: the root node to convert
     timestamp_map: dict of node -> [(timestamp, utc), ...] to convert
     results: dict of node -> (variance, [(converted timestamp, utc), ...])
-    conversion_chain: list of predictor tuples to apply to node, in order
-    variance: the total error introduced by chain: sum([p.variance for p in chain])
+    predictor: current predictor to convert with
     """
 
     # convert our own timestamp using the provided chain
     r = []
-    results[node] = (variance, r)   # also used as a visited-map
+    results[node] = (predictor.variance, r)   # also used as a visited-map
     for ts, utc in timestamp_map[node]:
-        for predictor in conversion_chain:
-            ts = predictor.predict(ts)
-        r.append((ts, utc))
+        r.append((predictor.predict(ts), utc))
 
-    # convert all reachable unvisited nodes using a conversion to our timestamp
-    # followed by the provided chain
+    # convert all reachable unvisited nodes
     for neighbor in g.neighbors(node):
         if neighbor not in results:
-            predictor = predictor_map[(neighbor, node)]
+            sub_predictor = predictor_map[(neighbor, node)]
+            # combined converts a timestamp using sub_predictor, then predictor
+            combined = predictor.combined_with(sub_predictor)
             _convert_timestamps(g, timestamp_map, predictor_map,
                                 neighbor,
                                 results,
-                                [predictor] + conversion_chain, variance + predictor.variance)
+                                combined)
 
 
 @profile.trackcpu
@@ -225,10 +232,8 @@ def normalize(clocktracker, timestamp_map):
         # Convert timestamps so they are using the clock of "central"
         # by walking the spanning tree edges.
         results = {}
-        conversion_chain = [_Predictor(_identity_predict, central.clock.jitter**2)]
-        _convert_timestamps(g, timestamp_map, predictor_map, central, results,
-                            conversion_chain, central.clock.jitter**2)
-
+        predictor = _Predictor(1.0, 0.0, central.clock.jitter**2)
+        _convert_timestamps(g, timestamp_map, predictor_map, central, results, predictor)
         components.append(results)
 
     return components
