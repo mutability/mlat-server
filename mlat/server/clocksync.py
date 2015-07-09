@@ -84,7 +84,6 @@ class ClockPairing(object):
 
         # and the output of the drift controller
         self.drift = None
-        self.i_drift = None
 
         self.reset()
 
@@ -113,10 +112,20 @@ class ClockPairing(object):
             self.error = math.sqrt(self.variance)
 
         if self.raw_drift is None:
-            self.drift = self.i_drift = None
+            self.drift = None
         else:
             self.drift = self.raw_drift - self.KI * self.cumulative_error
-            self.i_drift = -self.drift / (1.0 + self.drift)
+
+        if self.sync_count and self.drift is not None:
+            # roll base_ref / peer_ref / drift up into a simple scale+offset
+            #   peer = offset + scale * base
+            self.scale = 1.0 + self.drift
+            self.offset = self.peer_ref - self.scale * self.base_ref
+            # for convenience, the inverse function expressed in the same form:
+            #    base = (peer - offset) / scale
+            # => base = (-offset/scale) + (1/scale) * peer
+            self.i_scale = 1.0 / self.scale
+            self.i_offset = -self.offset / self.scale
 
     @property
     def valid(self):
@@ -234,11 +243,7 @@ class ClockPairing(object):
         if not self.sync_count:
             return None
 
-        # extrapolate after anchor point
-        elapsed = base_ts - self.base_ref
-        return (self.peer_ref +
-                elapsed +
-                elapsed * self.drift)
+        return self.offset + self.scale * base_ts
 
     def predict_base(self, peer_ts):
         """
@@ -249,11 +254,7 @@ class ClockPairing(object):
         if not self.sync_count:
             return None
 
-        # extrapolate after anchor point
-        elapsed = peer_ts - self.peer_ref
-        return (self.base_ref +
-                elapsed +
-                elapsed * self.i_drift)
+        return self.i_offset + self.i_scale * peer_ts
 
     def __str__(self):
         return self.base.uuid + ':' + self.peer.uuid
