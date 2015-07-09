@@ -283,18 +283,20 @@ class MlatTracker(object):
                      'ecef': [round(ecef[0], 0),
                               round(ecef[1], 0),
                               round(ecef[2], 0)],
-                     'ecef_cov': [round(ecef_cov[0, 0], 0),
-                                  round(ecef_cov[0, 1], 0),
-                                  round(ecef_cov[0, 2], 0),
-                                  round(ecef_cov[1, 0], 0),
-                                  round(ecef_cov[1, 1], 0),
-                                  round(ecef_cov[1, 2], 0),
-                                  round(ecef_cov[2, 0], 0),
-                                  round(ecef_cov[2, 1], 0),
-                                  round(ecef_cov[2, 2], 0)],
                      'distinct': distinct,
                      'dof': dof,
                      'cluster': cluster_state}
+
+            if ecef_cov is not None:
+                state['ecef_cov'] = [round(ecef_cov[0, 0], 0),
+                                     round(ecef_cov[0, 1], 0),
+                                     round(ecef_cov[0, 2], 0),
+                                     round(ecef_cov[1, 0], 0),
+                                     round(ecef_cov[1, 1], 0),
+                                     round(ecef_cov[1, 2], 0),
+                                     round(ecef_cov[2, 0], 0),
+                                     round(ecef_cov[2, 1], 0),
+                                     round(ecef_cov[2, 2], 0)]
 
             if altitude is not None:
                 state['altitude'] = round(altitude, 0)
