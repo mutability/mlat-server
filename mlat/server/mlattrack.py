@@ -31,7 +31,7 @@ from contextlib import closing
 
 import modes.message
 from mlat import geodesy, constants, profile
-from mlat.server import clocknorm, solver, config
+from mlat.server import solver, config
 
 glogger = logging.getLogger("mlattrack")
 
@@ -170,8 +170,7 @@ class MlatTracker(object):
 
         # normalize timestamps. This returns a list of timestamp maps;
         # within each map, the timestamp values are comparable to each other.
-        components = clocknorm.normalize(clocktracker=self.clock_tracker,
-                                         timestamp_map=timestamp_map)
+        components = self.clock_tracker.normalize(timestamp_map=timestamp_map)
 
         # cluster timestamps into clusters that are probably copies of the
         # same transmission.

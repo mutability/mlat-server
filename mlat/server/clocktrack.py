@@ -26,11 +26,14 @@ __all__ = ('SyncPoint', 'ClockTracker')
 import asyncio
 import functools
 import logging
+import time
 
 import modes.message
 
 from mlat import geodesy, constants, profile
-from mlat.server import clocksync, config
+from mlat.server import clocksync, config, clocknorm
+
+glogger = logging.getLogger("clocktrack")
 
 
 class SyncPoint(object):
@@ -64,6 +67,8 @@ class ClockTracker(object):
     """Maintains clock pairings between receivers, and matches up incoming sync messages
     from receivers to update the parameters of the pairings."""
 
+    USE_NORMALIZATION_MAP = True
+
     def __init__(self):
         # map of (sync key) -> list of sync points
         #
@@ -78,8 +83,39 @@ class ClockTracker(object):
         # is always less than receiver 1.
         self.clock_pairs = {}
 
+        if self.USE_NORMALIZATION_MAP:
+            self.norm_map = {}
+
+            # schedule periodic rebuild
+            asyncio.get_event_loop().call_later(1.0, self._rebuild)
+
         # schedule periodic cleanup
         asyncio.get_event_loop().call_later(1.0, self._update)
+
+    def _rebuild(self):
+        """Called periodically to update the clock normalization map."""
+        asyncio.get_event_loop().call_later(1.0, self._rebuild)
+        try:
+            start_time = time.monotonic()
+            self.norm_map = clocknorm.build_normalization_map(self)
+            end_time = time.monotonic()
+
+            if self.norm_map:
+                c = max([c for c, _ in self.norm_map.values()]) + 1
+                e = max([p.variance for _, p in self.norm_map.values()]) ** 0.5
+            else:
+                c = 0
+                e = 0
+
+            glogger.info("norm map: {p} pairings yielded {n} receivers in {c} components with max error {e:.1f}us in {elapsed:.3f}ms".format(
+                p=len(self.clock_pairs),
+                n=len(self.norm_map),
+                c=c,
+                e=e*1e6,
+                elapsed=(end_time - start_time) * 1e3))
+
+        except Exception:
+            glogger.exception("Failed to update clock normalization map")
 
     def _update(self):
         """Called periodically to update clock pairings."""
@@ -88,6 +124,12 @@ class ClockTracker(object):
 
         for k, pairing in self.clock_pairs.items():
             pairing.periodic_update()
+
+    def normalize(self, timestamp_map):
+        if self.USE_NORMALIZATION_MAP:
+            return clocknorm.normalize_via_map(self.norm_map, timestamp_map)
+        else:
+            return clocknorm.normalize(self, timestamp_map)
 
     @profile.trackcpu
     def receiver_clock_reset(self, receiver):
@@ -335,7 +377,8 @@ class ClockTracker(object):
         bearing1A = geodesy.ecef_bearing_to(r1.position, posA)
 
         # do the update
-        return pairing.update(address, t0B - delay0B, t1B - delay1B, i0, i1, distance0A, bearing0A, distance1A, bearing1A)
+        return pairing.update(address, t0B - delay0B, t1B - delay1B, i0, i1,
+                              distance0A, bearing0A, distance1A, bearing1A)
 
     def dump_receiver_state(self, receiver):
         state = {}

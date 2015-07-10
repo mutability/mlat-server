@@ -20,11 +20,16 @@
 Clock normalization routines.
 """
 
+import logging
 import pygraph.classes.graph
 import pygraph.algorithms.minmax
 
 from mlat import profile
 
+glogger = logging.getLogger("clocknorm")
+
+
+_mst = profile.trackcpu(pygraph.algorithms.minmax.minimal_spanning_tree)
 
 class _Predictor(object):
     """Simple object for holding prediction state"""
@@ -189,7 +194,7 @@ def normalize(clocktracker, timestamp_map):
                     g.add_edge((si, sj), wt=predictors[0].variance)
 
     # find a minimal spanning tree for each component of the graph
-    mst_forest = pygraph.algorithms.minmax.minimal_spanning_tree(g)
+    mst_forest = _mst(g)
 
     # rebuild the graph with only the spanning edges, retaining weights
     # also note the roots of each tree as we go
@@ -237,3 +242,148 @@ def normalize(clocktracker, timestamp_map):
         components.append(results)
 
     return components
+
+
+@profile.trackcpu
+def build_normalization_map(clocktracker):
+    """Returns a dict:
+
+    {receiver: (id, predictor), ...}
+
+    where all receivers that can be mutually synchronized have the same ID,
+    and the predictors convert to a common clock for each ID."""
+
+    pairings = clocktracker.clock_pairs
+
+    g = pygraph.classes.graph.graph()
+
+    # build a weighted graph where edges represent usable clock
+    # synchronization paths, and the weight of each edge represents
+    # the estimated variance introducted by converting a timestamp
+    # across that clock synchronization.
+
+    # also build a map of predictor objects corresponding to the
+    # edges for later use
+
+    receivers = set()
+    receivers_by_epoch = {}
+    predictor_map = {}
+    for si, sj in pairings.keys():
+        predictors = _make_predictors(clocktracker, si, sj)
+        if predictors:
+            predictor_map[(si, sj)] = predictors[0]
+            predictor_map[(sj, si)] = predictors[1]
+
+            if si not in receivers:
+                receivers.add(si)
+                if si.clock.epoch is not None:
+                    receivers_by_epoch.setdefault(si.clock.epoch, []).append(si)
+                g.add_node(si)
+
+            if sj not in receivers:
+                receivers.add(sj)
+                if sj.clock.epoch is not None:
+                    receivers_by_epoch.setdefault(sj.clock.epoch, []).append(sj)
+                g.add_node(sj)
+
+            g.add_edge((si, sj), wt=predictors[0].variance)
+
+    # also add pairings for receivers with the same epoch,
+    # regardless of whether they actually have ADS-B sync or not
+    for receiver_list in receivers_by_epoch.values():
+        for si in receiver_list:
+            for sj in receiver_list:
+                if si < sj and (si, sj) not in predictor_map:
+                    predictors = _make_predictors(clocktracker, si, sj)
+                    if predictors:
+                        predictor_map[(si, sj)] = predictors[0]
+                        predictor_map[(sj, si)] = predictors[1]
+                        g.add_edge((si, sj), wt=predictors[0].variance)
+
+    # find a minimal spanning tree for each component of the graph
+    mst_forest = _mst(g)
+
+    # rebuild the graph with only the spanning edges, retaining weights
+    # also note the roots of each tree as we go
+    g = pygraph.classes.graph.graph()
+    g.add_nodes(mst_forest.keys())
+    roots = []
+    for edge in mst_forest.items():
+        if edge[1] is None:
+            roots.append(edge[0])
+        else:
+            g.add_edge(edge, wt=predictor_map[edge].variance)
+
+    # for each spanning tree, find a central node and build the final predictors
+    results = {}
+    maxdepth = 0
+
+    for component_id in range(len(roots)):
+        root = roots[component_id]
+
+        # label heights of nodes, where the height of a node is
+        # the length of the most expensive path to a child of the node
+        heights = {}
+        _label_heights(g, root, heights)
+
+        # Find the longest path in the spanning tree; we want to
+        # resolve starting at the center of this path, as this minimizes
+        # the maximum path length to any node
+
+        # find the two tallest branches leading from the root
+        tall1 = _tallest_branch(g, root, heights)
+        tall2 = _tallest_branch(g, root, heights, ignore=tall1[1])
+
+        # Longest path is TALL1 - ROOT - TALL2
+        # We want to move along the path into TALL1 until the distances to the two
+        # tips of the path are equal length. This is the same as finding a node on
+        # the path within TALL1 with a height of about half the longest path.
+        target = (tall1[0] + tall2[0]) / 2
+        central = root
+        step = tall1[1]
+        while step and abs(heights[central] - target) > abs(heights[step] - target):
+            central = step
+            _, step = _tallest_branch(g, central, heights, ignore=central)
+
+        # build predictors that convert to "central"
+        # the graph only has spanning tree edges so it doesn't matter what
+        # order we walk it in, there's only one path from "central" to
+        # each node.
+
+        results[central] = (component_id, _Predictor(1.0, 0.0, central.clock.jitter**2))
+
+        queue = [(central, 0)]
+        while queue:
+            node, depth = queue.pop()
+            maxdepth = max(depth, maxdepth)
+            _, predictor = results[node]
+
+            for neighbor in g.neighbors(node):
+                if neighbor not in results:
+                    next_predictor = predictor_map[(neighbor, node)]
+                    combined = predictor.combined_with(next_predictor)
+                    results[neighbor] = (component_id, combined)
+                    queue.append((neighbor, depth + 1))
+
+    #glogger.info("max norm map depth was {d}".format(d=maxdepth))
+    return results
+
+
+@profile.trackcpu
+def normalize_via_map(normalization_map, timestamp_map):
+    """Like normalize, but takes a normalization map made by
+    build_normalization_map to speed things up."""
+
+    results = {}
+    for receiver, timestamp_list in timestamp_map.items():
+        norm = normalization_map.get(receiver)
+        if norm is None:
+            # ditch it, not syncable
+            continue
+
+        component_id, predictor = norm
+        rdict = results.setdefault(component_id, {})
+        converted = [(predictor.predict(ts), utc) for ts, utc in timestamp_list]
+        rdict[receiver] = (predictor.variance, converted)
+
+    return list(results.values())
