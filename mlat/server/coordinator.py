@@ -238,7 +238,7 @@ class Coordinator(object):
             yield from asyncio.sleep(60.0)
 
             try:
-                with closing(open(self.work_dir + '/cpuprofile.txt', 'w')) as f:
+                with closing(open(self.work_dir + '/cpuprofile.txt', 'a')) as f:
                     profile.dump_cpu_profiles(f)
             except Exception:
                 glogger.exception("Failed to write CPU profile")
