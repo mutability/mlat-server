@@ -181,11 +181,11 @@ class CommB(ModeSMessage):
         else:
             callsign = (
                 ais_charset[(frombuf[5] & 0xfc) >> 2] +
-                ais_charset[((frombuf[5] & 0x02) << 4) | ((frombuf[6] & 0xf0) >> 4)] +
+                ais_charset[((frombuf[5] & 0x03) << 4) | ((frombuf[6] & 0xf0) >> 4)] +
                 ais_charset[((frombuf[6] & 0x0f) << 2) | ((frombuf[7] & 0xc0) >> 6)] +
                 ais_charset[frombuf[7] & 0x3f] +
                 ais_charset[(frombuf[8] & 0xfc) >> 2] +
-                ais_charset[((frombuf[8] & 0x02) << 4) | ((frombuf[9] & 0xf0) >> 4)] +
+                ais_charset[((frombuf[8] & 0x03) << 4) | ((frombuf[9] & 0xf0) >> 4)] +
                 ais_charset[((frombuf[9] & 0x0f) << 2) | ((frombuf[10] & 0xc0) >> 6)] +
                 ais_charset[frombuf[10] & 0x3f]
             )
