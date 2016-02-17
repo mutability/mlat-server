@@ -64,7 +64,7 @@ class MlatTracker(object):
         s = set()
         if self.blacklist_filename:
             try:
-                with closing(open('mlat-blacklist.txt', 'r')) as f:
+                with closing(open(self.blacklist_filename, 'r')) as f:
                     user = f.readline().strip()
                     if user:
                         s.add(user)
